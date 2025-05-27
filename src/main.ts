@@ -13,13 +13,14 @@ async function bootstrap() {
     new FastifyAdapter({ logger: true }),
   );
 
+  // Register Fastify plugins
   await app.register(require('@fastify/helmet'), {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: [`'self'`],
         styleSrc: [`'self'`, `'unsafe-inline'`],
         fontSrc: [`'self'`],
-        imgSrc: [`'self'`, 'data:', 'validator.swagger.io'],
+        imgSrc: [`'self'`, 'data:', 'validator.swagger.io', '*.cloudinary.com'], // Add Cloudinary
         scriptSrc: [`'self'`],
       },
     },
@@ -30,6 +31,14 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // Register multipart support for file uploads
+  await app.register(require('@fastify/multipart'), {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB
+    },
+  });
+
+  // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
@@ -38,13 +47,18 @@ async function bootstrap() {
     }),
   );
 
+  // Swagger setup
   const config = new DocumentBuilder()
     .setTitle('Forum API')
     .setDescription('Forum Backend API Documentation')
     .setVersion('1.0')
+    .addTag('auth')
+    .addTag('users')
     .addTag('categories')
     .addTag('posts')
     .addTag('tags')
+    .addTag('upload') // Add upload tag
+    .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
@@ -54,6 +68,7 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0');
   console.log(`🚀 Forum API is running on: http://localhost:${port}`);
   console.log(`📚 Swagger documentation: http://localhost:${port}/api`);
+  console.log(`☁️  Cloudinary integration enabled`);
 }
 
 bootstrap();

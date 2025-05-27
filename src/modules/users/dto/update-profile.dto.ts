@@ -27,10 +27,11 @@ export class UpdateProfileDto {
   @MaxLength(100)
   displayName?: string;
 
-  @ApiPropertyOptional({ description: 'Avatar URL' })
-  @IsOptional()
-  @IsUrl()
-  avatar?: string;
+  // Remove avatar from here - it's handled via upload endpoint
+  // @ApiPropertyOptional({ description: 'Avatar URL' })
+  // @IsOptional()
+  // @IsUrl()
+  // avatar?: string;
 
   @ApiPropertyOptional({ description: 'Bio (max 500 characters)' })
   @IsOptional()

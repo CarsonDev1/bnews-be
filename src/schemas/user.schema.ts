@@ -26,6 +26,7 @@ export enum UserStatus {
       delete ret._id;
       delete ret.__v;
       delete ret.password;
+      delete ret.avatarPublicId;
       return ret;
     },
   },
@@ -52,6 +53,9 @@ export class User {
 
   @Prop()
   avatar?: string;
+
+  @Prop()
+  avatarPublicId?: string;
 
   @Prop({ trim: true, maxlength: 500 })
   bio?: string;

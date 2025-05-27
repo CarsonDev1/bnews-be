@@ -9,6 +9,7 @@ import {
   UserActivitySchema,
 } from '../../schemas/user-activity.schema';
 import { AuthModule } from '../auth/auth.module';
+import { UploadModule } from 'src/modules/upload/upload.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AuthModule } from '../auth/auth.module';
       { name: UserActivity.name, schema: UserActivitySchema },
     ]),
     forwardRef(() => AuthModule),
+    UploadModule,
   ],
   controllers: [UsersController],
   providers: [UsersService],

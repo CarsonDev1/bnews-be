@@ -13,6 +13,7 @@ import {
 } from '../../schemas/user-activity.schema';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { QueryUserDto } from './dto/query-user.dto';
+import { UploadService } from 'src/modules/upload/upload.service';
 
 @Injectable()
 export class UsersService {
@@ -21,6 +22,7 @@ export class UsersService {
     @InjectModel(Post.name) private postModel: Model<PostDocument>,
     @InjectModel(UserActivity.name)
     private userActivityModel: Model<UserActivityDocument>,
+    private uploadService: UploadService,
   ) {}
 
   async findAll(query: QueryUserDto) {
@@ -136,6 +138,55 @@ export class UsersService {
     }
 
     return user;
+  }
+
+  async updateAvatar(userId: string, avatarFile: Buffer): Promise<User> {
+    // Get current user to check for existing avatar
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Delete old avatar if exists
+    if (user.avatar && user.avatar.includes('cloudinary.com')) {
+      const publicId = this.extractPublicIdFromUrl(user.avatar);
+      if (publicId) {
+        await this.uploadService.deleteImage(publicId);
+      }
+    }
+
+    // Upload new avatar
+    const uploadResult = await this.uploadService.uploadAvatar(avatarFile);
+
+    // Update user with new avatar URL
+    const updatedUser = await this.userModel
+      .findByIdAndUpdate(
+        userId,
+        {
+          avatar: uploadResult.secure_url,
+          avatarPublicId: uploadResult.public_id, // Store for future deletion
+        },
+        { new: true },
+      )
+      .select('-password -emailVerificationToken -passwordResetToken')
+      .exec();
+
+    return updatedUser as User;
+  }
+
+  private extractPublicIdFromUrl(url: string): string | null {
+    try {
+      const parts = url.split('/');
+      const uploadIndex = parts.findIndex((part) => part === 'upload');
+      if (uploadIndex !== -1 && uploadIndex < parts.length - 1) {
+        // Get everything after 'upload' and before file extension
+        const pathAfterUpload = parts.slice(uploadIndex + 2).join('/');
+        return pathAfterUpload.replace(/\.[^/.]+$/, ''); // Remove extension
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   async getUserPosts(userId: string, page: number = 1, limit: number = 10) {

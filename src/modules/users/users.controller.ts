@@ -11,6 +11,10 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  UploadedFile,
+  BadRequestException,
+  Post,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,6 +23,8 @@ import {
   ApiParam,
   ApiBearerAuth,
   ApiQuery,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -26,11 +32,47 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { QueryUserDto } from './dto/query-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('users')
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  @Post('profile/avatar')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @UseInterceptors(FileInterceptor('avatar'))
+  @ApiOperation({ summary: 'Update user avatar' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        avatar: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Avatar updated successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid file' })
+  async updateAvatar(
+    @CurrentUser('id') userId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const user = await this.usersService.updateAvatar(userId, file.buffer);
+
+    return {
+      message: 'Avatar updated successfully',
+      avatar: user.avatar,
+    };
+  }
 
   @Get()
   @ApiOperation({ summary: 'Get all users with pagination and filters' })
