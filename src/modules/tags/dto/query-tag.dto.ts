@@ -37,4 +37,18 @@ export class QueryTagDto {
   @IsBoolean()
   @Transform(({ value }) => value === 'true' || value === true)
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Include posts in tag (true for 10 posts, number for custom limit)',
+    default: false,
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    const num = parseInt(value);
+    return isNaN(num) ? false : num;
+  })
+  includePosts?: boolean | number;
 }
