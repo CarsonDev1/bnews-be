@@ -7,6 +7,8 @@ import {
   HttpCode,
   HttpStatus,
   Patch,
+  Get,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,6 +25,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
+import { CurrentUser } from './decorators/current-user.decorator';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -79,6 +82,66 @@ export class AuthController {
     );
   }
 
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current user profile' })
+  @ApiResponse({
+    status: 200,
+    description: 'Current user profile retrieved successfully',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getMe(@CurrentUser() currentUser: any) {
+    try {
+      // Extract user ID safely
+      let userId: string;
+
+      if (typeof currentUser.id === 'string') {
+        userId = currentUser.id;
+      } else if (currentUser.id && currentUser.id.toString) {
+        userId = currentUser.id.toString();
+      } else {
+        throw new UnauthorizedException('Invalid user session');
+      }
+
+      // Get full user details from database
+      const user = await this.authService.getCurrentUser(userId);
+
+      return {
+        id: user._id.toString(),
+        username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        displayName: user.displayName || user.username,
+        avatar: user.avatar || '',
+        bio: user.bio || '',
+        website: user.website,
+        location: user.location,
+        dateOfBirth: user.dateOfBirth,
+        role: user.role,
+        status: user.status,
+        postCount: user.postCount,
+        commentCount: user.commentCount,
+        followerCount: user.followerCount,
+        followingCount: user.followingCount,
+        likeCount: user.likeCount,
+        isProfilePublic: user.isProfilePublic,
+        isEmailNotificationEnabled: user.isEmailNotificationEnabled,
+        emailVerifiedAt: user.emailVerifiedAt,
+        lastLoginAt: user.lastLoginAt,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        fullName:
+          user.firstName && user.lastName
+            ? `${user.firstName} ${user.lastName}`
+            : user.displayName || user.username,
+      };
+    } catch (error) {
+      throw new UnauthorizedException('Failed to get user profile');
+    }
+  }
+
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(JwtAuthGuard)
@@ -124,12 +187,14 @@ export class AuthController {
     return { message: 'Password reset successfully' };
   }
 
-  @Post('me')
+  @Get('profile')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get current user profile' })
-  @ApiResponse({ status: 200, description: 'User profile retrieved' })
-  async getProfile(@Request() req) {
-    return req.user;
+  @ApiOperation({ summary: 'Get detailed current user profile' })
+  @ApiResponse({ status: 200, description: 'Detailed user profile retrieved' })
+  async getProfile(@CurrentUser('id') userId: string) {
+    // Get full user details from database
+    const user = await this.authService.validateUser({ sub: userId });
+    return user;
   }
 }

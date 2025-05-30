@@ -18,6 +18,21 @@ export enum PostStatus {
       ret.id = ret._id;
       delete ret._id;
       delete ret.__v;
+
+      // Ensure populated fields are properly formatted
+      if (ret.tagIds) {
+        ret.tags = ret.tagIds; // Create alias
+        // Keep original tagIds for backward compatibility
+      }
+
+      if (ret.categoryId && typeof ret.categoryId === 'object') {
+        ret.category = ret.categoryId; // Create alias
+      }
+
+      if (ret.authorId && typeof ret.authorId === 'object') {
+        ret.author = ret.authorId; // Create alias
+      }
+
       return ret;
     },
   },
@@ -41,7 +56,7 @@ export class Post {
   @Prop({ type: Types.ObjectId, ref: 'Category', required: true })
   categoryId: Types.ObjectId;
 
-  @Prop([{ type: Types.ObjectId, ref: 'Tag' }])
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'Tag' }], default: [] })
   tagIds: Types.ObjectId[];
 
   // UPDATED: Author field is now required

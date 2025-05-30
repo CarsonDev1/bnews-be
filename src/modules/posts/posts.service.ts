@@ -137,12 +137,23 @@ export class PostsService {
     const [data, total] = await Promise.all([
       this.postModel
         .find(filter)
-        .populate('categoryId', 'name slug')
-        .populate('tagIds', 'name slug color')
-        .populate('authorId', 'username displayName avatar') // NEW: Populate author
+        .populate({
+          path: 'categoryId',
+          select: 'name slug description icon',
+        })
+        .populate({
+          path: 'tagIds',
+          select: 'name slug color description',
+          match: { isActive: true },
+        })
+        .populate({
+          path: 'authorId',
+          select: 'username displayName avatar',
+        })
         .sort(sort)
         .skip(skip)
         .limit(limit)
+        .lean(false)
         .exec(),
       this.postModel.countDocuments(filter),
     ]);
@@ -165,9 +176,20 @@ export class PostsService {
 
     const post = await this.postModel
       .findById(id)
-      .populate('categoryId', 'name slug')
-      .populate('tagIds', 'name slug color')
-      .populate('authorId', 'username displayName avatar bio') // NEW: Include author
+      .populate({
+        path: 'categoryId',
+        select: 'name slug description icon',
+      })
+      .populate({
+        path: 'tagIds',
+        select: 'name slug color description',
+        match: { isActive: true },
+      })
+      .populate({
+        path: 'authorId',
+        select: 'username displayName avatar bio website location',
+      })
+      .lean(false)
       .exec();
 
     if (!post) {
@@ -178,12 +200,28 @@ export class PostsService {
   }
 
   async findBySlug(slug: string): Promise<Post> {
+    console.log('🔍 Finding post by slug:', slug);
+
     const post = await this.postModel
       .findOne({ slug, status: PostStatus.PUBLISHED })
-      .populate('categoryId', 'name slug')
-      .populate('tagIds', 'name slug color')
-      .populate('authorId', 'username displayName avatar bio') // NEW: Include author
+      .populate({
+        path: 'categoryId',
+        select: 'name slug description icon',
+      })
+      .populate({
+        path: 'tagIds',
+        select: 'name slug color description', // FIX: Explicit field selection
+        match: { isActive: true }, // Only populate active tags
+      })
+      .populate({
+        path: 'authorId',
+        select: 'username displayName avatar bio website location',
+      })
+      .lean(false) // Don't use lean to preserve populate
       .exec();
+
+    console.log('🔍 Raw post query result:', post);
+    console.log('🔍 Post tagIds after populate:', post?.tagIds);
 
     if (!post) {
       throw new NotFoundException('Post not found');
@@ -193,6 +231,8 @@ export class PostsService {
     await this.postModel.findByIdAndUpdate(post._id, {
       $inc: { viewCount: 1 },
     });
+
+    console.log('🔍 Final post object:', JSON.stringify(post, null, 2));
 
     return post;
   }
@@ -332,33 +372,66 @@ export class PostsService {
         status: PostStatus.PUBLISHED,
         isFeatured: true,
       })
-      .populate('categoryId', 'name slug')
-      .populate('tagIds', 'name slug color')
-      .populate('authorId', 'username displayName avatar') // NEW: Include author
+      .populate({
+        path: 'categoryId',
+        select: 'name slug',
+      })
+      .populate({
+        path: 'tagIds',
+        select: 'name slug color',
+        match: { isActive: true },
+      })
+      .populate({
+        path: 'authorId',
+        select: 'username displayName avatar',
+      })
       .sort({ publishedAt: -1 })
       .limit(limit)
+      .lean(false)
       .exec();
   }
 
   async getPopular(limit: number = 5): Promise<Post[]> {
     return this.postModel
       .find({ status: PostStatus.PUBLISHED })
-      .populate('categoryId', 'name slug')
-      .populate('tagIds', 'name slug color')
-      .populate('authorId', 'username displayName avatar') // NEW: Include author
+      .populate({
+        path: 'categoryId',
+        select: 'name slug',
+      })
+      .populate({
+        path: 'tagIds',
+        select: 'name slug color',
+        match: { isActive: true },
+      })
+      .populate({
+        path: 'authorId',
+        select: 'username displayName avatar',
+      })
       .sort({ viewCount: -1, publishedAt: -1 })
       .limit(limit)
+      .lean(false)
       .exec();
   }
 
   async getLatest(limit: number = 5): Promise<Post[]> {
     return this.postModel
       .find({ status: PostStatus.PUBLISHED })
-      .populate('categoryId', 'name slug')
-      .populate('tagIds', 'name slug color')
-      .populate('authorId', 'username displayName avatar') // NEW: Include author
+      .populate({
+        path: 'categoryId',
+        select: 'name slug',
+      })
+      .populate({
+        path: 'tagIds',
+        select: 'name slug color',
+        match: { isActive: true },
+      })
+      .populate({
+        path: 'authorId',
+        select: 'username displayName avatar',
+      })
       .sort({ publishedAt: -1 })
       .limit(limit)
+      .lean(false)
       .exec();
   }
 
@@ -377,11 +450,22 @@ export class PostsService {
           { tagIds: { $in: post.tagIds } },
         ],
       })
-      .populate('categoryId', 'name slug')
-      .populate('tagIds', 'name slug color')
-      .populate('authorId', 'username displayName avatar') // NEW: Include author
+      .populate({
+        path: 'categoryId',
+        select: 'name slug',
+      })
+      .populate({
+        path: 'tagIds',
+        select: 'name slug color',
+        match: { isActive: true },
+      })
+      .populate({
+        path: 'authorId',
+        select: 'username displayName avatar',
+      })
       .sort({ publishedAt: -1 })
       .limit(limit)
+      .lean(false)
       .exec();
   }
 }

@@ -15,6 +15,7 @@ import {
   BadRequestException,
   Post,
   UseInterceptors,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -42,36 +43,172 @@ export class UsersController {
   @Post('profile/avatar')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @UseInterceptors(FileInterceptor('avatar'))
-  @ApiOperation({ summary: 'Update user avatar' })
+  @ApiOperation({
+    summary: 'Upload/Update user avatar',
+    description:
+      'Upload a new avatar image. Replaces existing avatar if present.',
+  })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
+    description: 'Avatar image file',
     schema: {
       type: 'object',
       properties: {
         avatar: {
           type: 'string',
           format: 'binary',
+          description:
+            'Avatar image file (max 10MB, formats: jpg, png, gif, webp)',
         },
+      },
+      required: ['avatar'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Avatar updated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        avatar: { type: 'string', description: 'New avatar URL' },
+        user: { type: 'object', description: 'Updated user object' },
       },
     },
   })
-  @ApiResponse({ status: 200, description: 'Avatar updated successfully' })
-  @ApiResponse({ status: 400, description: 'Invalid file' })
+  @ApiResponse({ status: 400, description: 'Invalid file or validation error' })
+  @ApiResponse({ status: 500, description: 'Upload service error' })
   async updateAvatar(
     @CurrentUser('id') userId: string,
-    @UploadedFile() file: Express.Multer.File,
+    @Request() request: any,
   ) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
+    try {
+      console.log('🔍 Avatar upload debug:');
+      console.log('- User ID:', userId);
+      console.log('- Request type:', typeof request);
+      console.log('- Has file method:', typeof request.file);
+      console.log('- Has files method:', typeof request.files);
+
+      // Handle Fastify multipart
+      let fileData: any = null;
+
+      // Method 1: Check if file is already parsed (by @fastify/multipart)
+      if (request.file && typeof request.file === 'function') {
+        console.log('📄 Using request.file() method');
+        fileData = await request.file();
+      }
+      // Method 2: Check if files array exists
+      else if (request.files && request.files.avatar) {
+        console.log('📄 Using request.files.avatar');
+        fileData = request.files.avatar;
+      }
+      // Method 3: Check body for file data
+      else if (request.body && request.body.avatar) {
+        console.log('📄 Using request.body.avatar');
+        fileData = request.body.avatar;
+      }
+      // Method 4: Try to get file manually
+      else {
+        console.log('📄 Trying manual file parsing...');
+        try {
+          const data = await request.file();
+          fileData = data;
+        } catch (parseError) {
+          console.error('❌ File parsing error:', parseError.message);
+        }
+      }
+
+      if (!fileData) {
+        throw new BadRequestException(
+          'No avatar file uploaded. Make sure field name is "avatar"',
+        );
+      }
+
+      console.log('📄 File data received:', {
+        filename: fileData.filename,
+        mimetype: fileData.mimetype,
+        fieldname: fileData.fieldname,
+        hasBuffer: !!fileData.buffer,
+        hasToBuffer: typeof fileData.toBuffer,
+      });
+
+      // Convert file to buffer
+      let fileBuffer: Buffer;
+
+      if (fileData.buffer) {
+        fileBuffer = fileData.buffer;
+      } else if (fileData.toBuffer && typeof fileData.toBuffer === 'function') {
+        fileBuffer = await fileData.toBuffer();
+      } else if (fileData._buf) {
+        fileBuffer = fileData._buf;
+      } else {
+        throw new BadRequestException('Unable to extract file buffer');
+      }
+
+      if (!fileBuffer || fileBuffer.length === 0) {
+        throw new BadRequestException('File buffer is empty');
+      }
+
+      // Validate file type and size
+      const allowedTypes = [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+      ];
+      if (!allowedTypes.includes(fileData.mimetype)) {
+        throw new BadRequestException(
+          `Invalid file type: ${fileData.mimetype}. Allowed: ${allowedTypes.join(', ')}`,
+        );
+      }
+
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (fileBuffer.length > maxSize) {
+        throw new BadRequestException(
+          `File too large: ${(fileBuffer.length / 1024 / 1024).toFixed(2)}MB. Maximum: ${maxSize / 1024 / 1024}MB`,
+        );
+      }
+
+      console.log('✅ File validation passed');
+      console.log('📤 File details:', {
+        size: `${(fileBuffer.length / 1024).toFixed(2)}KB`,
+        type: fileData.mimetype,
+        name: fileData.filename,
+      });
+
+      console.log('🔄 Calling usersService.updateAvatar...');
+      const user = await this.usersService.updateAvatar(userId, fileBuffer);
+      console.log('✅ Avatar updated successfully');
+
+      return {
+        message: 'Avatar updated successfully',
+        avatar: user.avatar,
+        user: {
+          id: user._id,
+          username: user.username,
+          avatar: user.avatar,
+          displayName: user.displayName,
+        },
+      };
+    } catch (error) {
+      console.error('❌ Avatar upload error:', error);
+
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      // Log detailed error for debugging
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.constructor.name,
+      });
+
+      throw new InternalServerErrorException(
+        `Avatar upload failed: ${error.message || 'Unknown error'}`,
+      );
     }
-
-    const user = await this.usersService.updateAvatar(userId, file.buffer);
-
-    return {
-      message: 'Avatar updated successfully',
-      avatar: user.avatar,
-    };
   }
 
   @Get()

@@ -254,16 +254,83 @@ export class AuthService {
     );
   }
 
-  async validateUser(payload: any): Promise<UserDocument> {
-    const user = await this.userModel.findById(payload.sub);
-    if (!user || user.status !== 'active') {
-      throw new UnauthorizedException();
+  async validateUser(payload: any): Promise<User> {
+    // FIX: Extract user ID properly from JWT payload
+    let userId: string;
+
+    if (typeof payload.sub === 'string') {
+      userId = payload.sub;
+    } else if (payload.sub && payload.sub._id) {
+      userId = payload.sub._id.toString();
+    } else if (payload.sub && typeof payload.sub === 'object') {
+      userId = payload.sub.toString();
+    } else {
+      throw new UnauthorizedException('Invalid token payload');
     }
+
+    // Validate ObjectId format
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new UnauthorizedException('Invalid user ID in token');
+    }
+
+    const user = await this.userModel
+      .findById(userId)
+      .select(
+        '-password -emailVerificationToken -passwordResetToken -avatarPublicId',
+      )
+      .exec();
+
+    if (!user || user.status !== 'active') {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    return user;
+  }
+
+  async getCurrentUser(userId: any): Promise<User> {
+    // FIX: Ensure userId is a string and valid ObjectId
+    let cleanUserId: string;
+
+    if (typeof userId === 'string') {
+      cleanUserId = userId;
+    } else if (userId && typeof userId === 'object') {
+      // Handle case where userId might be an object
+      if (userId._id) {
+        cleanUserId = userId._id.toString();
+      } else if (userId.toString) {
+        cleanUserId = userId.toString();
+      } else {
+        throw new UnauthorizedException('Invalid user ID format');
+      }
+    } else {
+      throw new UnauthorizedException('User ID is required');
+    }
+
+    // Validate ObjectId format
+    if (!Types.ObjectId.isValid(cleanUserId)) {
+      throw new UnauthorizedException('Invalid user ID format');
+    }
+
+    const user = await this.userModel
+      .findById(cleanUserId)
+      .select(
+        '-password -emailVerificationToken -passwordResetToken -avatarPublicId',
+      )
+      .exec();
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (user.status !== 'active') {
+      throw new UnauthorizedException('User account is inactive or banned');
+    }
+
     return user;
   }
 
   private async generateTokens(
-    user: UserDocument,
+    user: User,
     userAgent?: string,
     ipAddress?: string,
   ): Promise<{
@@ -271,16 +338,19 @@ export class AuthService {
     refreshToken: string;
   }> {
     const payload = {
-      sub: (user._id as Types.ObjectId).toString(),
+      sub: user._id.toString(), // Ensure string conversion
       email: user.email,
       role: user.role,
     };
 
+    // Generate access token
     const accessToken = this.jwtService.sign(payload);
 
+    // Generate refresh token
     const refreshToken = crypto.randomBytes(64).toString('hex');
-    const refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const refreshTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
+    // Save refresh token
     await this.refreshTokenModel.create({
       token: refreshToken,
       userId: user._id,

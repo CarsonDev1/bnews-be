@@ -1,14 +1,16 @@
 import {
   IsOptional,
   IsString,
-  IsBoolean,
   IsNumber,
   Min,
+  IsEnum,
+  IsBoolean,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
+import { PostStatus } from '../../../schemas/post.schema';
 
-export class QueryCategoryDto {
+export class CategoryPostsQueryDto {
   @ApiPropertyOptional({ description: 'Page number', minimum: 1, default: 1 })
   @IsOptional()
   @Type(() => Number)
@@ -27,21 +29,32 @@ export class QueryCategoryDto {
   @Min(1)
   limit?: number = 10;
 
-  @ApiPropertyOptional({ description: 'Search term' })
+  @ApiPropertyOptional({
+    description: 'Sort by',
+    enum: ['createdAt', 'publishedAt', 'viewCount', 'likeCount', 'title'],
+    default: 'publishedAt',
+  })
   @IsOptional()
   @IsString()
-  search?: string;
+  sortBy?: string = 'publishedAt';
 
-  @ApiPropertyOptional({ description: 'Parent category ID' })
+  @ApiPropertyOptional({
+    description: 'Sort order',
+    enum: ['asc', 'desc'],
+    default: 'desc',
+  })
   @IsOptional()
   @IsString()
-  parentId?: string;
+  sortOrder?: 'asc' | 'desc' = 'desc';
 
-  @ApiPropertyOptional({ description: 'Only active categories', default: true })
+  @ApiPropertyOptional({
+    description: 'Post status',
+    enum: PostStatus,
+    default: PostStatus.PUBLISHED,
+  })
   @IsOptional()
-  @IsBoolean()
-  @Transform(({ value }) => value === 'true' || value === true)
-  isActive?: boolean;
+  @IsEnum(PostStatus)
+  status?: PostStatus = PostStatus.PUBLISHED;
 
   @ApiPropertyOptional({
     description: 'Include children categories',
@@ -53,16 +66,11 @@ export class QueryCategoryDto {
   includeChildren?: boolean;
 
   @ApiPropertyOptional({
-    description:
-      'Include posts in category (true for 10 posts, number for custom limit)',
+    description: 'Include subcategories posts',
     default: false,
   })
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === 'true' || value === true) return true;
-    if (value === 'false' || value === false) return false;
-    const num = parseInt(value);
-    return isNaN(num) ? false : num;
-  })
-  includePosts?: boolean | number;
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === true)
+  includeSubcategories?: boolean;
 }

@@ -113,13 +113,32 @@ export class UploadService {
   }
 
   async uploadPostImage(file: Buffer): Promise<CloudinaryResponse> {
-    return this.uploadImage(file, 'forum/posts', {
-      width: 1200,
-      height: 630,
-      quality: 85,
-      format: 'webp',
-      crop: true,
-    });
+    try {
+      console.log('📄 [SERVICE] uploadPostImage called');
+      console.log('📄 [SERVICE] Buffer size:', file.length);
+      console.log('📄 [SERVICE] Calling uploadImage with params:', {
+        folder: 'forum/posts',
+        width: 1200,
+        height: 630,
+        quality: 85,
+        format: 'webp',
+        crop: true,
+      });
+
+      const result = await this.uploadImage(file, 'forum/posts', {
+        width: 1200,
+        height: 630,
+        quality: 85,
+        format: 'webp',
+        crop: true,
+      });
+
+      console.log('✅ [SERVICE] uploadPostImage completed successfully');
+      return result;
+    } catch (error) {
+      console.error('❌ [SERVICE] uploadPostImage error:', error);
+      throw error;
+    }
   }
 
   async uploadCategoryIcon(file: Buffer): Promise<CloudinaryResponse> {
