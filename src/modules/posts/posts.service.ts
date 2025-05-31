@@ -98,60 +98,94 @@ export class PostsService {
   private async processRelatedProducts(
     relatedProductsDto: any[],
   ): Promise<RelatedProduct[]> {
+    console.log('🔍 Processing related products:', relatedProductsDto.length);
+
     const processedProducts: RelatedProduct[] = [];
 
     for (const productDto of relatedProductsDto) {
       try {
-        // Validate product exists by searching external API
-        const validatedProducts =
-          await this.productsService.validateProductSelection([
-            productDto.url_key,
-          ]);
+        console.log('🔍 Processing product:', productDto.url_key);
 
-        if (validatedProducts.length > 0) {
-          const validatedProduct = validatedProducts[0];
+        // If productDto doesn't have url_key, skip validation
+        if (!productDto.url_key) {
+          console.warn('⚠️ Product missing url_key, skipping:', productDto);
+          continue;
+        }
 
-          // Map external product data to our schema
-          const relatedProduct: RelatedProduct = {
-            name: validatedProduct.name,
-            url_key: validatedProduct.url_key,
-            image_url: validatedProduct.image?.url || productDto.image_url,
-            price:
-              validatedProduct.price_range?.minimum_price?.final_price?.value ||
-              productDto.price,
-            currency:
-              validatedProduct.price_range?.minimum_price?.final_price
-                ?.currency || 'VND',
-            sale_price:
-              validatedProduct.daily_sale?.sale_price || productDto.sale_price,
-            product_url: `https://bachlongmobile.com/products/${validatedProduct.url_key}`,
-          };
+        let relatedProduct: RelatedProduct;
 
-          processedProducts.push(relatedProduct);
-        } else {
-          // If product not found in external API, use provided data with warning
+        try {
+          // Try to validate product exists by searching external API
+          const validatedProducts =
+            await this.productsService.validateProductSelection([
+              productDto.url_key,
+            ]);
+
+          if (validatedProducts.length > 0) {
+            const validatedProduct = validatedProducts[0];
+            console.log('✅ Product validated:', validatedProduct.name);
+
+            // Map external product data to our schema
+            relatedProduct = {
+              name: validatedProduct.name,
+              url_key: validatedProduct.url_key,
+              image_url:
+                validatedProduct.image?.url || productDto.image_url || '',
+              price:
+                validatedProduct.price_range?.minimum_price?.final_price
+                  ?.value ||
+                productDto.price ||
+                0,
+              currency:
+                validatedProduct.price_range?.minimum_price?.final_price
+                  ?.currency ||
+                productDto.currency ||
+                'VND',
+              sale_price:
+                validatedProduct.daily_sale?.sale_price ||
+                productDto.sale_price,
+              product_url:
+                productDto.product_url ||
+                `https://bachlongmobile.com/products/${validatedProduct.url_key}`,
+            };
+          } else {
+            throw new Error('Product not found in external API');
+          }
+        } catch (validationError) {
           console.warn(
-            `Product not found in external API: ${productDto.url_key}`,
+            `⚠️ Product validation failed for ${productDto.url_key}:`,
+            validationError.message,
           );
+          console.log('📝 Using provided data as-is');
 
-          const relatedProduct: RelatedProduct = {
-            name: productDto.name,
+          // Use provided data if validation fails
+          relatedProduct = {
+            name: productDto.name || 'Unknown Product',
             url_key: productDto.url_key,
-            image_url: productDto.image_url,
-            price: productDto.price,
+            image_url: productDto.image_url || '',
+            price: productDto.price || 0,
             currency: productDto.currency || 'VND',
             sale_price: productDto.sale_price,
-            product_url: productDto.product_url,
+            product_url:
+              productDto.product_url ||
+              `https://bachlongmobile.com/products/${productDto.url_key}`,
           };
-
-          processedProducts.push(relatedProduct);
         }
+
+        processedProducts.push(relatedProduct);
+        console.log('✅ Product processed successfully:', relatedProduct.name);
       } catch (error) {
-        console.error(`Error processing product ${productDto.url_key}:`, error);
+        console.error(
+          `❌ Error processing product ${productDto.url_key}:`,
+          error,
+        );
         // Continue with other products, don't fail the entire operation
       }
     }
 
+    console.log(
+      `✅ Processed ${processedProducts.length} products successfully`,
+    );
     return processedProducts;
   }
 
@@ -159,7 +193,6 @@ export class PostsService {
     const baseQuery = await this.findAll(query);
 
     if (query.hasProducts) {
-      // Filter posts that have related products
       baseQuery.data = baseQuery.data.filter(
         (post) => post.relatedProducts && post.relatedProducts.length > 0,
       );
@@ -273,7 +306,6 @@ export class PostsService {
     const sort: any = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
-    // Add sticky posts to top if not specifically sorting by sticky
     if (sortBy !== 'isSticky') {
       sort.isSticky = -1;
     }
@@ -354,18 +386,15 @@ export class PostsService {
       })
       .populate({
         path: 'tagIds',
-        select: 'name slug color description', // FIX: Explicit field selection
-        match: { isActive: true }, // Only populate active tags
+        select: 'name slug color description',
+        match: { isActive: true },
       })
       .populate({
         path: 'authorId',
         select: 'username displayName avatar bio website location',
       })
-      .lean(false) // Don't use lean to preserve populate
+      .lean(false)
       .exec();
-
-    console.log('🔍 Raw post query result:', post);
-    console.log('🔍 Post tagIds after populate:', post?.tagIds);
 
     if (!post) {
       throw new NotFoundException('Post not found');
@@ -375,8 +404,6 @@ export class PostsService {
     await this.postModel.findByIdAndUpdate(post._id, {
       $inc: { viewCount: 1 },
     });
-
-    console.log('🔍 Final post object:', JSON.stringify(post, null, 2));
 
     return post;
   }
@@ -472,16 +499,16 @@ export class PostsService {
         console.log('🔍 Tags updated:', updateData.tagIds);
       }
 
-      // FIX: Handle related products update properly
+      // FIXED: Handle related products update properly
       if (updatePostDto.relatedProducts !== undefined) {
         console.log('🔍 Updating related products...');
         console.log(
           '🔍 Current related products:',
-          existingPost.relatedProducts,
+          existingPost.relatedProducts?.length || 0,
         );
         console.log(
           '🔍 New related products data:',
-          updatePostDto.relatedProducts,
+          updatePostDto.relatedProducts?.length || 0,
         );
 
         if (
@@ -497,19 +524,39 @@ export class PostsService {
           updatePostDto.relatedProducts.length > 0
         ) {
           // Process and validate new related products
+          console.log('🔍 Processing new related products...');
+
           try {
+            // FIXED: Always process the products, even if validation fails
             updateData.relatedProducts = await this.processRelatedProducts(
               updatePostDto.relatedProducts,
             );
             console.log(
-              '🔍 Processed related products:',
-              updateData.relatedProducts,
+              '✅ Processed related products:',
+              updateData.relatedProducts.length,
             );
           } catch (error) {
             console.error('❌ Error processing related products:', error);
-            // Don't fail the entire update, just log the error
-            console.warn('🔍 Using provided data as-is for related products');
-            updateData.relatedProducts = updatePostDto.relatedProducts;
+
+            // FIXED: Fallback to using provided data directly
+            console.log('📝 Using provided data as fallback...');
+            updateData.relatedProducts = updatePostDto.relatedProducts.map(
+              (productDto) => ({
+                name: productDto.name || 'Unknown Product',
+                url_key: productDto.url_key || '',
+                image_url: productDto.image_url || '',
+                price: productDto.price || 0,
+                currency: productDto.currency || 'VND',
+                sale_price: productDto.sale_price,
+                product_url:
+                  productDto.product_url ||
+                  `https://bachlongmobile.com/products/${productDto.url_key}`,
+              }),
+            );
+            console.log(
+              '✅ Using fallback data for related products:',
+              updateData.relatedProducts.length,
+            );
           }
         }
       }
@@ -528,11 +575,20 @@ export class PostsService {
         console.log('🔍 Updating publish date:', updateData.publishedAt);
       }
 
-      console.log('🔍 Final update data:', JSON.stringify(updateData, null, 2));
+      console.log('🔍 Final update data keys:', Object.keys(updateData));
+      console.log(
+        '🔍 Related products in update:',
+        updateData.relatedProducts?.length || 0,
+      );
+
+      // FIXED: Use $set to ensure the update works properly
+      const updateOperation = {
+        $set: updateData,
+      };
 
       // Perform the update
       const updatedPost = await this.postModel
-        .findByIdAndUpdate(id, updateData, { new: true })
+        .findByIdAndUpdate(id, updateOperation, { new: true })
         .populate({
           path: 'categoryId',
           select: 'name slug description icon',
@@ -555,7 +611,7 @@ export class PostsService {
       console.log('✅ Post updated successfully');
       console.log(
         '🔍 Updated post related products:',
-        updatedPost.relatedProducts,
+        updatedPost.relatedProducts?.length || 0,
       );
 
       return updatedPost;
