@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import * as slug from 'slug';
+const slug = require('slug');
 import {
   Post,
   PostDocument,
@@ -386,101 +386,183 @@ export class PostsService {
     updatePostDto: UpdatePostDto,
     userId: string,
   ): Promise<Post> {
-    if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException('Invalid post ID');
-    }
+    try {
+      console.log('🔍 Updating post:', id);
+      console.log('🔍 Update data:', JSON.stringify(updatePostDto, null, 2));
 
-    const existingPost = await this.postModel.findById(id);
-    if (!existingPost) {
-      throw new NotFoundException('Post not found');
-    }
+      if (!Types.ObjectId.isValid(id)) {
+        throw new BadRequestException('Invalid post ID');
+      }
 
-    if (existingPost.authorId.toString() !== userId) {
-      throw new ForbiddenException('You can only edit your own posts');
-    }
+      const existingPost = await this.postModel.findById(id);
+      if (!existingPost) {
+        throw new NotFoundException('Post not found');
+      }
 
-    const updateData: any = { ...updatePostDto };
+      console.log('🔍 Existing post found, author check...');
+      if (existingPost.authorId.toString() !== userId) {
+        throw new ForbiddenException('You can only edit your own posts');
+      }
 
-    // Generate new slug if title is being updated
-    if (updatePostDto.title) {
-      const newSlug = slug(updatePostDto.title, { lower: true });
-      let finalSlug = newSlug;
-      let counter = 1;
+      const updateData: any = { ...updatePostDto };
 
-      while (
-        await this.postModel.findOne({ slug: finalSlug, _id: { $ne: id } })
+      // Generate new slug if title is being updated
+      if (updatePostDto.title) {
+        console.log('🔍 Updating title, generating new slug...');
+        const newSlug = slug(updatePostDto.title, { lower: true });
+        let finalSlug = newSlug;
+        let counter = 1;
+
+        while (
+          await this.postModel.findOne({ slug: finalSlug, _id: { $ne: id } })
+        ) {
+          finalSlug = `${newSlug}-${counter}`;
+          counter++;
+        }
+
+        updateData.slug = finalSlug;
+        console.log('🔍 New slug:', finalSlug);
+      }
+
+      // Handle category change
+      if (
+        updatePostDto.categoryId &&
+        updatePostDto.categoryId !== existingPost.categoryId.toString()
       ) {
-        finalSlug = `${newSlug}-${counter}`;
-        counter++;
+        console.log('🔍 Updating category...');
+        await this.categoriesService.findOne(updatePostDto.categoryId);
+        await this.categoriesService.decrementPostCount(
+          existingPost.categoryId.toString(),
+        );
+        await this.categoriesService.incrementPostCount(
+          updatePostDto.categoryId,
+        );
+        updateData.categoryId = new Types.ObjectId(updatePostDto.categoryId);
       }
 
-      updateData.slug = finalSlug;
-    }
+      // Handle tags change
+      if (updatePostDto.tagIds !== undefined) {
+        console.log('🔍 Updating tags...');
 
-    // Handle category change
-    if (
-      updatePostDto.categoryId &&
-      updatePostDto.categoryId !== existingPost.categoryId.toString()
-    ) {
-      await this.categoriesService.findOne(updatePostDto.categoryId);
-      await this.categoriesService.decrementPostCount(
-        existingPost.categoryId.toString(),
-      );
-      await this.categoriesService.incrementPostCount(updatePostDto.categoryId);
-      updateData.categoryId = new Types.ObjectId(updatePostDto.categoryId);
-    }
+        // Validate new tags exist
+        if (updatePostDto.tagIds && updatePostDto.tagIds.length > 0) {
+          for (const tagId of updatePostDto.tagIds) {
+            await this.tagsService.findOne(tagId);
+          }
+        }
 
-    // Handle tags change
-    if (updatePostDto.tagIds) {
-      for (const tagId of updatePostDto.tagIds) {
-        await this.tagsService.findOne(tagId);
+        const oldTagIds = existingPost.tagIds.map((id) => id.toString());
+        const newTagIds = updatePostDto.tagIds || [];
+
+        // Decrement old tags
+        for (const tagId of oldTagIds) {
+          if (!newTagIds.includes(tagId)) {
+            await this.tagsService.decrementPostCount(tagId);
+          }
+        }
+
+        // Increment new tags
+        for (const tagId of newTagIds) {
+          if (!oldTagIds.includes(tagId)) {
+            await this.tagsService.incrementPostCount(tagId);
+          }
+        }
+
+        updateData.tagIds = newTagIds.map((id) => new Types.ObjectId(id));
+        console.log('🔍 Tags updated:', updateData.tagIds);
       }
 
-      const oldTagIds = existingPost.tagIds.map((id) => id.toString());
-      const newTagIds = updatePostDto.tagIds;
+      // FIX: Handle related products update properly
+      if (updatePostDto.relatedProducts !== undefined) {
+        console.log('🔍 Updating related products...');
+        console.log(
+          '🔍 Current related products:',
+          existingPost.relatedProducts,
+        );
+        console.log(
+          '🔍 New related products data:',
+          updatePostDto.relatedProducts,
+        );
 
-      for (const tagId of oldTagIds) {
-        if (!newTagIds.includes(tagId)) {
-          await this.tagsService.decrementPostCount(tagId);
+        if (
+          updatePostDto.relatedProducts === null ||
+          (Array.isArray(updatePostDto.relatedProducts) &&
+            updatePostDto.relatedProducts.length === 0)
+        ) {
+          // Clear related products
+          updateData.relatedProducts = [];
+          console.log('🔍 Clearing related products');
+        } else if (
+          Array.isArray(updatePostDto.relatedProducts) &&
+          updatePostDto.relatedProducts.length > 0
+        ) {
+          // Process and validate new related products
+          try {
+            updateData.relatedProducts = await this.processRelatedProducts(
+              updatePostDto.relatedProducts,
+            );
+            console.log(
+              '🔍 Processed related products:',
+              updateData.relatedProducts,
+            );
+          } catch (error) {
+            console.error('❌ Error processing related products:', error);
+            // Don't fail the entire update, just log the error
+            console.warn('🔍 Using provided data as-is for related products');
+            updateData.relatedProducts = updatePostDto.relatedProducts;
+          }
         }
       }
 
-      for (const tagId of newTagIds) {
-        if (!oldTagIds.includes(tagId)) {
-          await this.tagsService.incrementPostCount(tagId);
-        }
+      // Handle publish date
+      if (
+        updatePostDto.status === PostStatus.PUBLISHED &&
+        !existingPost.publishedAt
+      ) {
+        updateData.publishedAt = new Date();
+        console.log('🔍 Setting publish date for newly published post');
       }
 
-      updateData.tagIds = newTagIds.map((id) => new Types.ObjectId(id));
-    }
+      if (updatePostDto.publishedAt) {
+        updateData.publishedAt = new Date(updatePostDto.publishedAt);
+        console.log('🔍 Updating publish date:', updateData.publishedAt);
+      }
 
-    // NEW: Handle related products update
-    if (updatePostDto.relatedProducts !== undefined) {
-      updateData.relatedProducts = await this.processRelatedProducts(
-        updatePostDto.relatedProducts,
+      console.log('🔍 Final update data:', JSON.stringify(updateData, null, 2));
+
+      // Perform the update
+      const updatedPost = await this.postModel
+        .findByIdAndUpdate(id, updateData, { new: true })
+        .populate({
+          path: 'categoryId',
+          select: 'name slug description icon',
+        })
+        .populate({
+          path: 'tagIds',
+          select: 'name slug color description',
+          match: { isActive: true },
+        })
+        .populate({
+          path: 'authorId',
+          select: 'username displayName avatar',
+        })
+        .exec();
+
+      if (!updatedPost) {
+        throw new NotFoundException('Post not found after update');
+      }
+
+      console.log('✅ Post updated successfully');
+      console.log(
+        '🔍 Updated post related products:',
+        updatedPost.relatedProducts,
       );
+
+      return updatedPost;
+    } catch (error) {
+      console.error('❌ Error updating post:', error);
+      throw error;
     }
-
-    // Handle publish date
-    if (
-      updatePostDto.status === PostStatus.PUBLISHED &&
-      !existingPost.publishedAt
-    ) {
-      updateData.publishedAt = new Date();
-    }
-
-    if (updatePostDto.publishedAt) {
-      updateData.publishedAt = new Date(updatePostDto.publishedAt);
-    }
-
-    const post = await this.postModel
-      .findByIdAndUpdate(id, updateData, { new: true })
-      .populate('categoryId', 'name slug')
-      .populate('tagIds', 'name slug color')
-      .populate('authorId', 'username displayName avatar')
-      .exec();
-
-    return post as Post;
   }
 
   async remove(id: string, userId: string): Promise<void> {
