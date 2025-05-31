@@ -8,6 +8,15 @@ export enum PostStatus {
   PUBLISHED = 'published',
   ARCHIVED = 'archived',
 }
+export interface RelatedProduct {
+  name: string;
+  url_key: string;
+  image_url: string;
+  price: number;
+  currency: string;
+  sale_price?: number;
+  product_url?: string;
+}
 
 @Schema({
   timestamps: true,
@@ -63,6 +72,22 @@ export class Post {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   authorId: Types.ObjectId;
 
+  @Prop({
+    type: [
+      {
+        name: { type: String, required: true },
+        url_key: { type: String, required: true },
+        image_url: { type: String },
+        price: { type: Number },
+        currency: { type: String, default: 'VND' },
+        sale_price: { type: Number },
+        product_url: { type: String },
+      },
+    ],
+    default: [],
+  })
+  relatedProducts: RelatedProduct[];
+
   @Prop({ enum: PostStatus, default: PostStatus.PUBLISHED })
   status: PostStatus;
 
@@ -107,6 +132,7 @@ PostSchema.index({ status: 1, publishedAt: -1 });
 PostSchema.index({ viewCount: -1 });
 PostSchema.index({ isFeatured: 1, publishedAt: -1 });
 PostSchema.index({ isSticky: -1, publishedAt: -1 });
+PostSchema.index({ 'relatedProducts.url_key': 1 });
 PostSchema.index({ tagIds: 1 });
 
 // Text search index for SEO

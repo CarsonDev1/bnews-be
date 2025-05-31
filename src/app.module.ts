@@ -23,6 +23,7 @@ import {
   UserActivitySchema,
 } from './schemas/user-activity.schema';
 import { UploadModule } from 'src/modules/upload/upload.module';
+import { ProductsModule } from 'src/modules/products/products.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { UploadModule } from 'src/modules/upload/upload.module';
     PostsModule,
     TagsModule,
     UploadModule,
+    ProductsModule,
   ],
   controllers: [AppController],
   providers: [

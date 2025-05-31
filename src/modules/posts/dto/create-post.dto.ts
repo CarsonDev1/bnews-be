@@ -6,10 +6,44 @@ import {
   IsEnum,
   IsMongoId,
   IsDateString,
+  ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { PostStatus } from '../../../schemas/post.schema';
+
+export class RelatedProductDto {
+  @ApiProperty({ description: 'Product name' })
+  @IsString()
+  name: string;
+
+  @ApiProperty({ description: 'Product URL key' })
+  @IsString()
+  url_key: string;
+
+  @ApiPropertyOptional({ description: 'Product image URL' })
+  @IsOptional()
+  @IsString()
+  image_url?: string;
+
+  @ApiPropertyOptional({ description: 'Product price' })
+  @IsOptional()
+  price?: number;
+
+  @ApiPropertyOptional({ description: 'Currency', default: 'VND' })
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @ApiPropertyOptional({ description: 'Sale price' })
+  @IsOptional()
+  sale_price?: number;
+
+  @ApiPropertyOptional({ description: 'Product detail page URL' })
+  @IsOptional()
+  @IsString()
+  product_url?: string;
+}
 
 export class CreatePostDto {
   @ApiProperty({ description: 'Post title' })
@@ -39,6 +73,16 @@ export class CreatePostDto {
   @IsArray()
   @IsMongoId({ each: true })
   tagIds?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Related products',
+    type: [RelatedProductDto],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RelatedProductDto)
+  relatedProducts?: RelatedProductDto[];
 
   @ApiPropertyOptional({
     description: 'Post status',

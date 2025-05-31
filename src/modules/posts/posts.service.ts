@@ -7,13 +7,19 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as slug from 'slug';
-import { Post, PostDocument, PostStatus } from '../../schemas/post.schema';
+import {
+  Post,
+  PostDocument,
+  PostStatus,
+  RelatedProduct,
+} from '../../schemas/post.schema';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { QueryPostDto } from './dto/query-post.dto';
 import { CategoriesService } from '../categories/categories.service';
 import { TagsService } from '../tags/tags.service';
 import { UsersService } from '../users/users.service';
+import { ProductsService } from 'src/modules/products/products.service';
 
 @Injectable()
 export class PostsService {
@@ -22,6 +28,7 @@ export class PostsService {
     private categoriesService: CategoriesService,
     private tagsService: TagsService,
     private usersService: UsersService,
+    private productsService: ProductsService,
   ) {}
 
   async create(createPostDto: CreatePostDto, authorId: string): Promise<Post> {
@@ -44,6 +51,16 @@ export class PostsService {
         await this.tagsService.findOne(tagId);
       }
     }
+    //Process and validate related products
+    let processedRelatedProducts: RelatedProduct[] = [];
+    if (
+      createPostDto.relatedProducts &&
+      createPostDto.relatedProducts.length > 0
+    ) {
+      processedRelatedProducts = await this.processRelatedProducts(
+        createPostDto.relatedProducts,
+      );
+    }
 
     const postData = {
       ...createPostDto,
@@ -56,6 +73,7 @@ export class PostsService {
           : undefined,
       categoryId: new Types.ObjectId(createPostDto.categoryId),
       tagIds: createPostDto.tagIds?.map((id) => new Types.ObjectId(id)) || [],
+      relatedProducts: processedRelatedProducts,
     };
 
     const post = new this.postModel(postData);
@@ -63,15 +81,11 @@ export class PostsService {
 
     // Update category post count
     await this.categoriesService.incrementPostCount(createPostDto.categoryId);
-
-    // Update tag post counts
     if (createPostDto.tagIds && createPostDto.tagIds.length > 0) {
       for (const tagId of createPostDto.tagIds) {
         await this.tagsService.incrementPostCount(tagId);
       }
     }
-
-    // Update user post count
     await this.usersService.incrementPostCount(authorId);
 
     return savedPost.populate([
@@ -79,6 +93,136 @@ export class PostsService {
       { path: 'tagIds', select: 'name slug color' },
       { path: 'authorId', select: 'username displayName avatar' },
     ]);
+  }
+
+  private async processRelatedProducts(
+    relatedProductsDto: any[],
+  ): Promise<RelatedProduct[]> {
+    const processedProducts: RelatedProduct[] = [];
+
+    for (const productDto of relatedProductsDto) {
+      try {
+        // Validate product exists by searching external API
+        const validatedProducts =
+          await this.productsService.validateProductSelection([
+            productDto.url_key,
+          ]);
+
+        if (validatedProducts.length > 0) {
+          const validatedProduct = validatedProducts[0];
+
+          // Map external product data to our schema
+          const relatedProduct: RelatedProduct = {
+            name: validatedProduct.name,
+            url_key: validatedProduct.url_key,
+            image_url: validatedProduct.image?.url || productDto.image_url,
+            price:
+              validatedProduct.price_range?.minimum_price?.final_price?.value ||
+              productDto.price,
+            currency:
+              validatedProduct.price_range?.minimum_price?.final_price
+                ?.currency || 'VND',
+            sale_price:
+              validatedProduct.daily_sale?.sale_price || productDto.sale_price,
+            product_url: `https://bachlongmobile.com/products/${validatedProduct.url_key}`,
+          };
+
+          processedProducts.push(relatedProduct);
+        } else {
+          // If product not found in external API, use provided data with warning
+          console.warn(
+            `Product not found in external API: ${productDto.url_key}`,
+          );
+
+          const relatedProduct: RelatedProduct = {
+            name: productDto.name,
+            url_key: productDto.url_key,
+            image_url: productDto.image_url,
+            price: productDto.price,
+            currency: productDto.currency || 'VND',
+            sale_price: productDto.sale_price,
+            product_url: productDto.product_url,
+          };
+
+          processedProducts.push(relatedProduct);
+        }
+      } catch (error) {
+        console.error(`Error processing product ${productDto.url_key}:`, error);
+        // Continue with other products, don't fail the entire operation
+      }
+    }
+
+    return processedProducts;
+  }
+
+  async getPostsWithProducts(query: QueryPostDto & { hasProducts?: boolean }) {
+    const baseQuery = await this.findAll(query);
+
+    if (query.hasProducts) {
+      // Filter posts that have related products
+      baseQuery.data = baseQuery.data.filter(
+        (post) => post.relatedProducts && post.relatedProducts.length > 0,
+      );
+      baseQuery.pagination.total = baseQuery.data.length;
+    }
+
+    return baseQuery;
+  }
+
+  async getPostsByProduct(
+    productUrlKey: string,
+    page: number = 1,
+    limit: number = 10,
+  ) {
+    const skip = (page - 1) * limit;
+
+    const [posts, total] = await Promise.all([
+      this.postModel
+        .find({
+          'relatedProducts.url_key': productUrlKey,
+          status: PostStatus.PUBLISHED,
+        })
+        .populate('categoryId', 'name slug')
+        .populate('tagIds', 'name slug color')
+        .populate('authorId', 'username displayName avatar')
+        .sort({ publishedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.postModel.countDocuments({
+        'relatedProducts.url_key': productUrlKey,
+        status: PostStatus.PUBLISHED,
+      }),
+    ]);
+
+    return {
+      data: posts,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getPopularProductsInPosts(limit: number = 10) {
+    const pipeline: any = [
+      { $match: { status: PostStatus.PUBLISHED } },
+      { $unwind: '$relatedProducts' },
+      {
+        $group: {
+          _id: '$relatedProducts.url_key',
+          count: { $sum: 1 },
+          product: { $first: '$relatedProducts' },
+          posts: { $push: { _id: '$_id', title: '$title', slug: '$slug' } },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: limit },
+    ];
+
+    return this.postModel.aggregate(pipeline).exec();
   }
 
   async findAll(query: QueryPostDto) {
@@ -251,7 +395,6 @@ export class PostsService {
       throw new NotFoundException('Post not found');
     }
 
-    // Check if user is the author (or admin - you can add admin check later)
     if (existingPost.authorId.toString() !== userId) {
       throw new ForbiddenException('You can only edit your own posts');
     }
@@ -289,23 +432,19 @@ export class PostsService {
 
     // Handle tags change
     if (updatePostDto.tagIds) {
-      // Validate new tags
       for (const tagId of updatePostDto.tagIds) {
         await this.tagsService.findOne(tagId);
       }
 
-      // Update tag post counts
       const oldTagIds = existingPost.tagIds.map((id) => id.toString());
       const newTagIds = updatePostDto.tagIds;
 
-      // Decrement old tags
       for (const tagId of oldTagIds) {
         if (!newTagIds.includes(tagId)) {
           await this.tagsService.decrementPostCount(tagId);
         }
       }
 
-      // Increment new tags
       for (const tagId of newTagIds) {
         if (!oldTagIds.includes(tagId)) {
           await this.tagsService.incrementPostCount(tagId);
@@ -313,6 +452,13 @@ export class PostsService {
       }
 
       updateData.tagIds = newTagIds.map((id) => new Types.ObjectId(id));
+    }
+
+    // NEW: Handle related products update
+    if (updatePostDto.relatedProducts !== undefined) {
+      updateData.relatedProducts = await this.processRelatedProducts(
+        updatePostDto.relatedProducts,
+      );
     }
 
     // Handle publish date

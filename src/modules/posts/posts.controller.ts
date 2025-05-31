@@ -55,6 +55,44 @@ export class PostsController {
     return this.postsService.findAll(query);
   }
 
+  @Get('by-product/:productKey')
+  @ApiOperation({ summary: 'Get posts mentioning a specific product' })
+  @ApiParam({ name: 'productKey', description: 'Product URL key' })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page' })
+  @ApiResponse({
+    status: 200,
+    description: 'Posts with product retrieved successfully',
+  })
+  getPostsByProduct(
+    @Param('productKey') productKey: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.postsService.getPostsByProduct(
+      productKey,
+      page ? parseInt(page.toString()) : 1,
+      limit ? parseInt(limit.toString()) : 10,
+    );
+  }
+
+  @Get('popular-products')
+  @ApiOperation({ summary: 'Get popular products mentioned in posts' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Number of products to return',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Popular products retrieved successfully',
+  })
+  getPopularProducts(@Query('limit') limit?: number) {
+    return this.postsService.getPopularProductsInPosts(
+      limit ? parseInt(limit.toString()) : 10,
+    );
+  }
+
   @Get('my-posts')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

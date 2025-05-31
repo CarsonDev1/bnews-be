@@ -5,17 +5,14 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-// FIX: Correct slug import
-import slug, * as slugify from 'slug';
-// Alternative import methods if above doesn't work:
-// import slug from 'slug';
-// const slugify = require('slug');
 
 import { Category, CategoryDocument } from '../../schemas/category.schema';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { QueryCategoryDto } from './dto/query-category.dto';
 import { Post, PostDocument, PostStatus } from 'src/schemas/post.schema';
+
+const slug = require('slug');
 
 @Injectable()
 export class CategoriesService {
@@ -26,12 +23,18 @@ export class CategoriesService {
 
   async create(createCategoryDto: CreateCategoryDto): Promise<Category> {
     const categorySlug = slug(createCategoryDto.name, { lower: true });
+    console.log('🔍 Generated slug:', categorySlug);
 
     // Check if slug already exists
     const existingCategory = await this.categoryModel.findOne({
       slug: categorySlug,
     });
+    console.log(
+      '🔍 Existing category check:',
+      existingCategory ? 'FOUND DUPLICATE' : 'OK',
+    );
     if (existingCategory) {
+      console.log('❌ Duplicate slug error for:', categorySlug);
       throw new BadRequestException('Category with this name already exists');
     }
 
