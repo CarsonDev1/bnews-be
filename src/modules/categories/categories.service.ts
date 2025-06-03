@@ -1,3 +1,4 @@
+// src/modules/categories/categories.service.ts - FIXED VERSION
 import {
   Injectable,
   NotFoundException,
@@ -89,15 +90,25 @@ export class CategoriesService {
       filter.isActive = isActive;
     }
 
-    // Execute query with population
+    // FIXED: Properly populate children
     let queryBuilder = this.categoryModel
       .find(filter)
       .sort({ order: 1, createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
+    // FIXED: Always populate children with proper options
     if (includeChildren) {
-      queryBuilder = queryBuilder.populate('children');
+      queryBuilder = queryBuilder.populate({
+        path: 'children',
+        match: { isActive: true },
+        options: { sort: { order: 1, createdAt: 1 } },
+        populate: {
+          path: 'children', // Nested children (grandchildren)
+          match: { isActive: true },
+          options: { sort: { order: 1, createdAt: 1 } },
+        },
+      });
     }
 
     const [categories, total] = await Promise.all([
@@ -118,8 +129,9 @@ export class CategoriesService {
             status: PostStatus.PUBLISHED,
           });
 
+          const categoryObject = category.toObject();
           return {
-            ...category.toObject(),
+            ...categoryObject,
             posts: posts.data,
             postsTotal: posts.pagination.total,
             postsPagination: posts.pagination,
@@ -144,9 +156,19 @@ export class CategoriesService {
       throw new BadRequestException('Invalid category ID');
     }
 
+    // FIXED: Properly populate children
     const category = await this.categoryModel
       .findById(id)
-      .populate('children')
+      .populate({
+        path: 'children',
+        match: { isActive: true },
+        options: { sort: { order: 1, createdAt: 1 } },
+        populate: {
+          path: 'children', // Nested children (grandchildren)
+          match: { isActive: true },
+          options: { sort: { order: 1, createdAt: 1 } },
+        },
+      })
       .exec();
 
     if (!category) {
@@ -178,10 +200,19 @@ export class CategoriesService {
       throw new BadRequestException('Invalid category ID');
     }
 
-    // Get category
+    // Get category with proper children population
     let categoryQuery = this.categoryModel.findById(id);
     if (includeChildren) {
-      categoryQuery = categoryQuery.populate('children');
+      categoryQuery = categoryQuery.populate({
+        path: 'children',
+        match: { isActive: true },
+        options: { sort: { order: 1, createdAt: 1 } },
+        populate: {
+          path: 'children',
+          match: { isActive: true },
+          options: { sort: { order: 1, createdAt: 1 } },
+        },
+      });
     }
 
     const category = await categoryQuery.exec();
@@ -197,8 +228,9 @@ export class CategoriesService {
       sortOrder,
     });
 
+    const categoryObject = category.toObject();
     return {
-      ...category.toObject(),
+      ...categoryObject,
       posts: posts.data,
       postsPagination: posts.pagination,
     };
@@ -222,10 +254,19 @@ export class CategoriesService {
       includeChildren = false,
     } = query;
 
-    // Get category by slug
+    // Get category by slug with proper children population
     let categoryQuery = this.categoryModel.findOne({ slug, isActive: true });
     if (includeChildren) {
-      categoryQuery = categoryQuery.populate('children');
+      categoryQuery = categoryQuery.populate({
+        path: 'children',
+        match: { isActive: true },
+        options: { sort: { order: 1, createdAt: 1 } },
+        populate: {
+          path: 'children',
+          match: { isActive: true },
+          options: { sort: { order: 1, createdAt: 1 } },
+        },
+      });
     }
 
     const category = await categoryQuery.exec();
@@ -243,8 +284,9 @@ export class CategoriesService {
       sortOrder,
     });
 
+    const categoryObject = category.toObject();
     return {
-      ...category.toObject(),
+      ...categoryObject,
       posts: posts.data,
       postsPagination: posts.pagination,
     };
@@ -323,9 +365,19 @@ export class CategoriesService {
   }
 
   async findBySlug(slug: string): Promise<Category> {
+    // FIXED: Properly populate children
     const category = await this.categoryModel
       .findOne({ slug, isActive: true })
-      .populate('children')
+      .populate({
+        path: 'children',
+        match: { isActive: true },
+        options: { sort: { order: 1, createdAt: 1 } },
+        populate: {
+          path: 'children',
+          match: { isActive: true },
+          options: { sort: { order: 1, createdAt: 1 } },
+        },
+      })
       .exec();
 
     if (!category) {
@@ -375,9 +427,19 @@ export class CategoriesService {
       }
     }
 
+    // FIXED: Properly populate children after update
     const category = await this.categoryModel
       .findByIdAndUpdate(id, updateData, { new: true })
-      .populate('children')
+      .populate({
+        path: 'children',
+        match: { isActive: true },
+        options: { sort: { order: 1, createdAt: 1 } },
+        populate: {
+          path: 'children',
+          match: { isActive: true },
+          options: { sort: { order: 1, createdAt: 1 } },
+        },
+      })
       .exec();
 
     if (!category) {
@@ -412,43 +474,91 @@ export class CategoriesService {
     }
   }
 
+  // FIXED: Build proper tree structure with children
   async getTree(): Promise<Category[]> {
-    const categories = await this.categoryModel
+    console.log('🌳 Building category tree...');
+
+    // Get all categories and populate children
+    const allCategories = await this.categoryModel
       .find({ isActive: true })
-      .sort({ order: 1, createdAt: -1 })
-      .populate('children')
+      .populate({
+        path: 'children',
+        match: { isActive: true },
+        options: { sort: { order: 1, createdAt: 1 } },
+        populate: {
+          path: 'children',
+          match: { isActive: true },
+          options: { sort: { order: 1, createdAt: 1 } },
+        },
+      })
+      .sort({ order: 1, createdAt: 1 })
       .exec();
 
-    // Build tree structure
-    const rootCategories = categories.filter((cat) => !cat.parentId);
+    console.log(`📊 Found ${allCategories.length} categories total`);
+
+    // Filter only root categories (those without parentId)
+    const rootCategories = allCategories.filter((cat) => !cat.parentId);
+
+    console.log(`🌿 Found ${rootCategories.length} root categories`);
+
+    // Log tree structure for debugging
+    rootCategories.forEach((rootCat: any) => {
+      console.log(`📁 Root: ${rootCat.name} (${rootCat._id})`);
+      if (rootCat.children && rootCat.children.length > 0) {
+        rootCat.children.forEach((child: any) => {
+          console.log(
+            `  📂 Child: ${child.name} (${child._id}) -> Parent: ${child.parentId}`,
+          );
+          if (child.children && child.children.length > 0) {
+            child.children.forEach((grandchild: any) => {
+              console.log(
+                `    📄 Grandchild: ${grandchild.name} (${grandchild._id}) -> Parent: ${grandchild.parentId}`,
+              );
+            });
+          }
+        });
+      }
+    });
+
     return rootCategories;
   }
 
   async getTreeWithPosts(): Promise<any[]> {
-    const categories = await this.categoryModel
-      .find({ isActive: true })
-      .sort({ order: 1, createdAt: -1 })
-      .populate('children')
-      .exec();
+    console.log('🌳📄 Building category tree with posts...');
 
-    // Get posts count for each category
-    const categoriesWithPosts = await Promise.all(
-      categories.map(async (category) => {
-        const postsCount = await this.postModel.countDocuments({
-          categoryId: category._id,
-          status: PostStatus.PUBLISHED,
-        });
+    // Get tree structure first
+    const treeCategories = await this.getTree();
 
-        return {
-          ...category.toObject(),
-          actualPostCount: postsCount, // Real-time count
-        };
-      }),
+    // Add posts count for each category recursively
+    const addPostCounts = async (categories: any[]): Promise<any[]> => {
+      return Promise.all(
+        categories.map(async (category) => {
+          const postsCount = await this.postModel.countDocuments({
+            categoryId: category._id,
+            status: PostStatus.PUBLISHED,
+          });
+
+          const categoryObj = category.toObject();
+
+          // Process children recursively
+          if (categoryObj.children && categoryObj.children.length > 0) {
+            categoryObj.children = await addPostCounts(categoryObj.children);
+          }
+
+          return {
+            ...categoryObj,
+            actualPostCount: postsCount, // Real-time count
+          };
+        }),
+      );
+    };
+
+    const result = await addPostCounts(treeCategories);
+
+    console.log(
+      `✅ Tree with posts completed: ${result.length} root categories`,
     );
-
-    // Build tree structure
-    const rootCategories = categoriesWithPosts.filter((cat) => !cat.parentId);
-    return rootCategories;
+    return result;
   }
 
   async incrementPostCount(categoryId: string): Promise<void> {

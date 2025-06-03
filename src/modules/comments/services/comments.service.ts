@@ -1,3 +1,4 @@
+// src/modules/comments/services/comments.service.ts - FIXED VERSION
 import {
   Injectable,
   NotFoundException,
@@ -11,7 +12,12 @@ import { ModerateCommentDto } from 'src/modules/comments/dto/moderate-comment.dt
 import { QueryCommentDto } from 'src/modules/comments/dto/query-comment.dto';
 import { UpdateCommentDto } from 'src/modules/comments/dto/update-comment.dto';
 import { ExternalUserService } from 'src/modules/comments/services/external-user.service';
-import { CommentDocument, CommentStatus } from 'src/schemas/comment.schema';
+// FIX: Add missing Comment import
+import {
+  Comment,
+  CommentDocument,
+  CommentStatus,
+} from 'src/schemas/comment.schema';
 import { Post, PostDocument } from 'src/schemas/post.schema';
 
 @Injectable()

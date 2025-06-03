@@ -1,3 +1,4 @@
+// src/modules/categories/categories.controller.ts - FIXED VERSION
 import {
   Controller,
   Get,
@@ -44,32 +45,100 @@ export class CategoriesController {
     description: 'Include posts (true for 10 posts, number for custom limit)',
     example: 'true or 5',
   })
+  @ApiQuery({
+    name: 'includeChildren',
+    required: false,
+    description: 'Include children categories',
+    example: 'true',
+  })
   @ApiResponse({
     status: 200,
     description: 'Categories retrieved successfully',
   })
   findAll(@Query() query: QueryCategoryDto) {
-    return this.categoriesService.findAll(query);
+    // FIXED: Ensure includeChildren is properly passed
+    return this.categoriesService.findAll({
+      ...query,
+      includeChildren: query.includeChildren || false,
+    });
   }
 
   @Get('tree')
-  @ApiOperation({ summary: 'Get category tree structure' })
+  @ApiOperation({
+    summary: 'Get category tree structure',
+    description: 'Returns hierarchical category tree with children populated',
+  })
   @ApiResponse({
     status: 200,
     description: 'Category tree retrieved successfully',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          slug: { type: 'string' },
+          description: { type: 'string' },
+          icon: { type: 'string' },
+          parentId: { type: 'string', nullable: true },
+          order: { type: 'number' },
+          isActive: { type: 'boolean' },
+          postCount: { type: 'number' },
+          children: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/Category' },
+            description: 'Child categories',
+          },
+          createdAt: { type: 'string' },
+          updatedAt: { type: 'string' },
+        },
+      },
+    },
   })
-  getTree() {
-    return this.categoriesService.getTree();
+  async getTree() {
+    console.log('🌳 Controller: Getting category tree...');
+    const tree = await this.categoriesService.getTree();
+    console.log(
+      `✅ Controller: Retrieved tree with ${tree.length} root categories`,
+    );
+    return tree;
   }
 
   @Get('tree-with-posts')
-  @ApiOperation({ summary: 'Get category tree with real-time posts count' })
+  @ApiOperation({
+    summary: 'Get category tree with real-time posts count',
+    description: 'Returns hierarchical category tree with actual post counts',
+  })
   @ApiResponse({
     status: 200,
     description: 'Category tree with posts count retrieved successfully',
   })
-  getTreeWithPosts() {
-    return this.categoriesService.getTreeWithPosts();
+  async getTreeWithPosts() {
+    console.log('🌳📄 Controller: Getting category tree with posts...');
+    const tree = await this.categoriesService.getTreeWithPosts();
+    console.log(
+      `✅ Controller: Retrieved tree with posts for ${tree.length} root categories`,
+    );
+    return tree;
+  }
+
+  @Get('root')
+  @ApiOperation({
+    summary: 'Get only root categories (no parent)',
+    description: 'Returns only top-level categories without children populated',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Root categories retrieved successfully',
+  })
+  async getRootCategories() {
+    return this.categoriesService.findAll({
+      parentId: 'null', // Only root categories
+      includeChildren: true, // Include their children
+      page: 1,
+      limit: 100, // Get all root categories
+    });
   }
 
   @Get(':id')
@@ -116,6 +185,10 @@ export class CategoriesController {
         slug: { type: 'string' },
         description: { type: 'string' },
         postCount: { type: 'number' },
+        children: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/Category' },
+        },
         posts: {
           type: 'array',
           items: {
@@ -148,7 +221,10 @@ export class CategoriesController {
     @Param('id') id: string,
     @Query() query: CategoryPostsQueryDto,
   ) {
-    return this.categoriesService.findOneWithPosts(id, query);
+    return this.categoriesService.findOneWithPosts(id, {
+      ...query,
+      includeChildren: true, // Always include children for this endpoint
+    });
   }
 
   @Get(':id/posts')
@@ -176,7 +252,10 @@ export class CategoriesController {
     @Param('slug') slug: string,
     @Query() query: CategoryPostsQueryDto,
   ) {
-    return this.categoriesService.findBySlugWithPosts(slug, query);
+    return this.categoriesService.findBySlugWithPosts(slug, {
+      ...query,
+      includeChildren: true, // Always include children for this endpoint
+    });
   }
 
   // NEW: Get category posts by slug
@@ -196,6 +275,25 @@ export class CategoriesController {
     const categoryId =
       (category as any).id || (category as any)._id?.toString();
     return this.categoriesService.getCategoryPosts(categoryId, query);
+  }
+
+  @Get(':id/children')
+  @ApiOperation({
+    summary: 'Get direct children of a category',
+    description: 'Returns only direct child categories of the specified parent',
+  })
+  @ApiParam({ name: 'id', description: 'Parent Category ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Child categories retrieved successfully',
+  })
+  async getCategoryChildren(@Param('id') id: string) {
+    return this.categoriesService.findAll({
+      parentId: id,
+      includeChildren: true, // Include grandchildren too
+      page: 1,
+      limit: 100,
+    });
   }
 
   @Delete(':id')

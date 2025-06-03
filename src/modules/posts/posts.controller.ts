@@ -1,3 +1,4 @@
+// src/modules/posts/posts.controller.ts - COMPLETELY CLEAN VERSION
 import {
   Controller,
   Get,
@@ -10,7 +11,6 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
-  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -27,15 +27,11 @@ import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { QueryPostDto } from './dto/query-post.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { CommentsService } from 'src/modules/comments/services/comments.service';
 
 @ApiTags('posts')
 @Controller('posts')
 export class PostsController {
-  constructor(
-    private readonly postsService: PostsService,
-    private readonly commentsService: CommentsService,
-  ) {}
+  constructor(private readonly postsService: PostsService) {}
 
   @Post()
   @UseGuards(JwtAuthGuard)
@@ -57,27 +53,6 @@ export class PostsController {
   @ApiResponse({ status: 200, description: 'Posts retrieved successfully' })
   findAll(@Query() query: QueryPostDto) {
     return this.postsService.findAll(query);
-  }
-
-  @Get(':id/comments')
-  @ApiOperation({ summary: 'Get comments for a post' })
-  @ApiParam({ name: 'id', description: 'Post ID' })
-  @ApiQuery({ name: 'page', required: false, description: 'Page number' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Items per page' })
-  @ApiResponse({
-    status: 200,
-    description: 'Post comments retrieved successfully',
-  })
-  getPostComments(
-    @Param('id') id: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
-  ) {
-    return this.commentsService.getCommentsByPost(
-      id,
-      page ? parseInt(page.toString()) : 1,
-      limit ? parseInt(limit.toString()) : 10,
-    );
   }
 
   @Get('by-product/:productKey')
