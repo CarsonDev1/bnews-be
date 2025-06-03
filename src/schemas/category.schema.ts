@@ -1,3 +1,4 @@
+// src/schemas/category.schema.ts - UPDATED FIXED VERSION
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
@@ -38,16 +39,22 @@ export class Category {
   @Prop()
   icon?: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Category', default: null })
+  // FIX: Ensure parentId is properly typed and indexed
+  @Prop({ 
+    type: Types.ObjectId, 
+    ref: 'Category', 
+    default: null,
+    index: true // Add index for better performance
+  })
   parentId?: Types.ObjectId | null;
 
   @Prop({ default: 0 })
   order: number;
 
-  @Prop({ default: true })
+  @Prop({ default: true, index: true })
   isActive: boolean;
 
-  @Prop({ default: 0 })
+  @Prop({ default: 0, index: true })
   postCount: number;
 
   @Prop()
@@ -62,29 +69,52 @@ export class Category {
   createdAt?: Date;
   updatedAt?: Date;
 
+  // Virtual field for populated children
   children?: Category[];
 }
 
 export const CategorySchema = SchemaFactory.createForClass(Category);
 
-// Indexes for performance
+// CRITICAL: Add compound indexes for performance
 CategorySchema.index({ slug: 1 });
-CategorySchema.index({ parentId: 1 });
+CategorySchema.index({ parentId: 1, isActive: 1, order: 1 });
 CategorySchema.index({ isActive: 1, order: 1 });
 CategorySchema.index({ postCount: -1 });
 
-// FIXED: Virtual for children with proper configuration
+// FIX: Proper virtual configuration for children
 CategorySchema.virtual('children', {
   ref: 'Category',
   localField: '_id',
   foreignField: 'parentId',
-  justOne: false, // Important: This allows multiple children
+  justOne: false,
   options: {
     sort: { order: 1, name: 1 },
-    match: { isActive: true }, // Only get active children
+    match: { isActive: true },
   },
 });
 
-// FIXED: Ensure virtuals are included in JSON and Object outputs
+// CRITICAL: Ensure virtuals are included
 CategorySchema.set('toJSON', { virtuals: true });
 CategorySchema.set('toObject', { virtuals: true });
+
+// IMPORTANT: Add a post-save hook to debug parentId setting
+CategorySchema.post('save', function(doc) {
+  console.log('📁 Category saved:', {
+    id: doc._id,
+    name: doc.name,
+    parentId: doc.parentId,
+    parentIdType: typeof doc.parentId,
+    hasParent: !!doc.parentId
+  });
+});
+
+// IMPORTANT: Add a pre-save hook to ensure parentId is properly set
+CategorySchema.pre('save', function(next) {
+  console.log('📝 Pre-save category:', {
+    name: this.name,
+    parentId: this.parentId,
+    parentIdType: typeof this.parentId,
+    isModified: this.isModified('parentId')
+  });
+  next();
+});

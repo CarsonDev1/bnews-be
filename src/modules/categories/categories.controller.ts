@@ -1,4 +1,4 @@
-// src/modules/categories/categories.controller.ts - FIXED VERSION
+// src/modules/categories/categories.controller.ts - COMPLETE FIXED VERSION
 import {
   Controller,
   Get,
@@ -139,6 +139,58 @@ export class CategoriesController {
       page: 1,
       limit: 100, // Get all root categories
     });
+  }
+
+  // DEBUG ENDPOINTS
+  @Get('debug/relationships')
+  @ApiOperation({ summary: 'Debug all category relationships' })
+  @ApiResponse({ status: 200, description: 'Debug information retrieved' })
+  async debugAllRelationships() {
+    await this.categoriesService.refreshCategoryRelationships();
+    return { message: 'Check server logs for relationship debug info' };
+  }
+
+  @Get('debug/parent/:parentId')
+  @ApiOperation({ summary: 'Debug specific parent-child relationship' })
+  @ApiParam({ name: 'parentId', description: 'Parent Category ID' })
+  @ApiResponse({ status: 200, description: 'Parent-child debug info' })
+  async debugParentChild(@Param('parentId') parentId: string) {
+    return this.categoriesService.debugParentChild(parentId);
+  }
+
+  @Get('debug/all-with-children')
+  @ApiOperation({ summary: 'Get all categories with children populated' })
+  @ApiResponse({ status: 200, description: 'All categories with children' })
+  async getAllWithChildren() {
+    return this.categoriesService.findAll({
+      page: 1,
+      limit: 100,
+      includeChildren: true
+    });
+  }
+
+  @Get('debug/verify-db')
+  @ApiOperation({ summary: 'Verify database structure' })
+  @ApiResponse({ status: 200, description: 'Database verification results' })
+  async verifyDatabase() {
+    // This will help you check what's actually in the database
+    const allCategories = await this.categoriesService['categoryModel'].find({}).lean();
+    
+    const report = {
+      totalCategories: allCategories.length,
+      rootCategories: allCategories.filter(c => !c.parentId).length,
+      childCategories: allCategories.filter(c => c.parentId).length,
+      categories: allCategories.map(cat => ({
+        id: cat._id,
+        name: cat.name,
+        parentId: cat.parentId,
+        parentIdType: typeof cat.parentId,
+        hasParent: !!cat.parentId
+      }))
+    };
+
+    console.log('📊 Database Report:', JSON.stringify(report, null, 2));
+    return report;
   }
 
   @Get(':id')
