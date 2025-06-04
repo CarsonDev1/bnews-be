@@ -1,3 +1,4 @@
+// src/modules/tags/tags.service.ts - UPDATED WITH IMAGE SUPPORT
 import {
   Injectable,
   NotFoundException,
@@ -5,20 +6,23 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import * as slug from 'slug';
 import { Tag, TagDocument } from '../../schemas/tag.schema';
 import { CreateTagDto } from './dto/create-tag.dto';
 import { Post, PostDocument } from '../../schemas/post.schema';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { QueryTagDto } from './dto/query-tag.dto';
 import { PostStatus } from 'src/schemas/post.schema';
+import { UploadService } from '../upload/upload.service'; // NEW
+const slug = require('slug');
+
 
 @Injectable()
 export class TagsService {
   constructor(
     @InjectModel(Tag.name) private tagModel: Model<TagDocument>,
     @InjectModel(Post.name) private postModel: Model<PostDocument>,
-  ) {}
+    private uploadService: UploadService, // NEW
+  ) { }
 
   async create(createTagDto: CreateTagDto): Promise<Tag> {
     const tagSlug = slug(createTagDto.name, { lower: true });
@@ -35,6 +39,78 @@ export class TagsService {
     });
 
     return tag.save();
+  }
+
+  // NEW: Update tag with image
+  async updateTagImage(tagId: string, imageBuffer: Buffer): Promise<Tag> {
+    if (!Types.ObjectId.isValid(tagId)) {
+      throw new BadRequestException('Invalid tag ID');
+    }
+
+    const tag = await this.tagModel.findById(tagId);
+    if (!tag) {
+      throw new NotFoundException('Tag not found');
+    }
+
+    // Delete old image if exists
+    if (tag.image && tag.image.includes('/uploads/')) {
+      try {
+        await this.uploadService.deleteImageByUrl(tag.image);
+      } catch (error) {
+        console.warn('Failed to delete old tag image:', error.message);
+      }
+    }
+
+    // Upload new image
+    const uploadResult = await this.uploadService.uploadTagImage(imageBuffer);
+
+    // Update tag with new image URL and filename
+    const updatedTag = await this.tagModel
+      .findByIdAndUpdate(
+        tagId,
+        {
+          image: uploadResult.url,
+          imagePublicId: uploadResult.filename,
+        },
+        { new: true },
+      )
+      .exec();
+
+    return updatedTag as Tag;
+  }
+
+  // NEW: Remove tag image
+  async removeTagImage(tagId: string): Promise<Tag> {
+    if (!Types.ObjectId.isValid(tagId)) {
+      throw new BadRequestException('Invalid tag ID');
+    }
+
+    const tag = await this.tagModel.findById(tagId);
+    if (!tag) {
+      throw new NotFoundException('Tag not found');
+    }
+
+    // Delete image file if exists
+    if (tag.image && tag.image.includes('/uploads/')) {
+      try {
+        await this.uploadService.deleteImageByUrl(tag.image);
+      } catch (error) {
+        console.warn('Failed to delete tag image:', error.message);
+      }
+    }
+
+    // Remove image from tag
+    const updatedTag = await this.tagModel
+      .findByIdAndUpdate(
+        tagId,
+        {
+          $unset: { image: 1, imagePublicId: 1 },
+        },
+        { new: true },
+      )
+      .exec();
+
+    return updatedTag as Tag;
   }
 
   async findAll(query: QueryTagDto) {
@@ -243,7 +319,7 @@ export class TagsService {
       this.postModel
         .find(filter)
         .populate('categoryId', 'name slug')
-        .populate('tagIds', 'name slug color')
+        .populate('tagIds', 'name slug color image') // NEW: Include image
         .populate('authorId', 'username displayName avatar')
         .sort(sort)
         .skip(skip)
@@ -324,6 +400,12 @@ export class TagsService {
       throw new BadRequestException('Invalid tag ID');
     }
 
+    const tag = await this.tagModel.findById(id);
+    if (!tag) {
+      throw new NotFoundException('Tag not found');
+    }
+
+    // Check if tag has posts
     const hasPosts = await this.postModel.findOne({ tagIds: id });
     if (hasPosts) {
       throw new BadRequestException(
@@ -331,10 +413,16 @@ export class TagsService {
       );
     }
 
-    const result = await this.tagModel.findByIdAndDelete(id);
-    if (!result) {
-      throw new NotFoundException('Tag not found');
+    // Delete tag image if exists
+    if (tag.image && tag.image.includes('/uploads/')) {
+      try {
+        await this.uploadService.deleteImageByUrl(tag.image);
+      } catch (error) {
+        console.warn('Failed to delete tag image during removal:', error.message);
+      }
     }
+
+    await this.tagModel.findByIdAndDelete(id);
   }
 
   async getPopularTags(limit: number = 10): Promise<Tag[]> {
@@ -409,4 +497,4 @@ export class TagsService {
   async decrementPostCount(tagId: string): Promise<void> {
     await this.tagModel.findByIdAndUpdate(tagId, { $inc: { postCount: -1 } });
   }
-}
+} 

@@ -24,6 +24,7 @@ import {
 import { UploadModule } from 'src/modules/upload/upload.module';
 import { ProductsModule } from 'src/modules/products/products.module';
 import { CommentsModule } from 'src/modules/comments/comments.module';
+import { BannersModule } from 'src/modules/banners/banners.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { CommentsModule } from 'src/modules/comments/comments.module';
     PostsModule,
     TagsModule,
     UploadModule,
+    BannersModule,
     ProductsModule,
     CommentsModule,
     // REMOVED StaticModule - let @fastify/static handle everything

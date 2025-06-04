@@ -1,3 +1,4 @@
+// src/schemas/tag.schema.ts - UPDATED WITH IMAGE
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
@@ -12,6 +13,7 @@ export type TagDocument = Tag & Document;
       ret.id = ret._id;
       delete ret._id;
       delete ret.__v;
+      delete ret.imagePublicId; // Don't expose internal image reference
       return ret;
     },
   },
@@ -29,6 +31,14 @@ export class Tag {
   @Prop()
   color?: string;
 
+  // NEW: Tag image field
+  @Prop()
+  image?: string;
+
+  // NEW: Store image filename for deletion (internal use)
+  @Prop()
+  imagePublicId?: string;
+
   @Prop({ default: 0 })
   postCount: number;
 
@@ -43,6 +53,7 @@ export class Tag {
 
   createdAt?: Date;
   updatedAt?: Date;
+  _id: any;
 }
 
 export const TagSchema = SchemaFactory.createForClass(Tag);

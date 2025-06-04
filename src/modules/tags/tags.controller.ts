@@ -1,3 +1,4 @@
+// src/modules/tags/tags.controller.ts - COMPLETE VERSION
 import {
   Controller,
   Get,
@@ -9,6 +10,9 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  Req,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,24 +20,164 @@ import {
   ApiResponse,
   ApiParam,
   ApiQuery,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
 import { TagsService } from './tags.service';
 import { CreateTagDto } from './dto/create-tag.dto';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { QueryTagDto } from './dto/query-tag.dto';
 import { TagPostsQueryDto } from 'src/modules/tags/dto/tag-posts-query.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { FastifyRequest } from 'fastify';
 
 @ApiTags('tags')
 @Controller('tags')
 export class TagsController {
-  constructor(private readonly tagsService: TagsService) {}
+  constructor(private readonly tagsService: TagsService) { }
 
   @Post()
-  @ApiOperation({ summary: 'Create a new tag' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a new tag (Admin only)' })
   @ApiResponse({ status: 201, description: 'Tag created successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   create(@Body() createTagDto: CreateTagDto) {
     return this.tagsService.create(createTagDto);
+  }
+
+  // NEW: Upload tag image
+  @Post(':id/image')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Upload tag image (Admin only)' })
+  @ApiParam({ name: 'id', description: 'Tag ID' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Tag image file (max 10MB)',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Tag image uploaded successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        tag: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            slug: { type: 'string' },
+            image: { type: 'string' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Tag not found' })
+  async uploadTagImage(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Req() request: FastifyRequest,
+  ) {
+    try {
+      const data = await (request as any).file();
+      if (!data) {
+        throw new BadRequestException('No file uploaded');
+      }
+
+      const buffer = await data.toBuffer();
+
+      // Basic validation
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (!allowedTypes.includes(data.mimetype)) {
+        throw new BadRequestException(
+          `Invalid file type. Allowed: ${allowedTypes.join(', ')}`
+        );
+      }
+
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (buffer.length > maxSize) {
+        throw new BadRequestException('File too large. Maximum size: 10MB');
+      }
+
+      const updatedTag = await this.tagsService.updateTagImage(id, buffer);
+
+      return {
+        message: 'Tag image uploaded successfully',
+        tag: {
+          id: updatedTag._id,
+          name: updatedTag.name,
+          slug: updatedTag.slug,
+          image: updatedTag.image,
+        },
+      };
+    } catch (error) {
+      console.error('Tag image upload error:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Upload failed: ${error.message}`);
+    }
+  }
+
+  // NEW: Remove tag image
+  @Delete(':id/image')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove tag image (Admin only)' })
+  @ApiParam({ name: 'id', description: 'Tag ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Tag image removed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        tag: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            slug: { type: 'string' },
+            image: { type: 'string', nullable: true },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Tag not found' })
+  async removeTagImage(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    const updatedTag = await this.tagsService.removeTagImage(id);
+
+    return {
+      message: 'Tag image removed successfully',
+      tag: {
+        id: updatedTag._id,
+        name: updatedTag.name,
+        slug: updatedTag.slug,
+        image: updatedTag.image || null,
+      },
+    };
   }
 
   @Get()
@@ -49,6 +193,7 @@ export class TagsController {
     name: 'limit',
     required: false,
     description: 'Number of tags to return',
+    example: 10,
   })
   @ApiResponse({
     status: 200,
@@ -66,11 +211,13 @@ export class TagsController {
     name: 'limit',
     required: false,
     description: 'Number of tags to return',
+    example: 10,
   })
   @ApiQuery({
     name: 'postsLimit',
     required: false,
     description: 'Number of posts per tag',
+    example: 5,
   })
   @ApiResponse({
     status: 200,
@@ -84,6 +231,7 @@ export class TagsController {
           name: { type: 'string' },
           slug: { type: 'string' },
           color: { type: 'string' },
+          image: { type: 'string' },
           postCount: { type: 'number' },
           posts: {
             type: 'array',
@@ -149,6 +297,7 @@ export class TagsController {
         slug: { type: 'string' },
         description: { type: 'string' },
         color: { type: 'string' },
+        image: { type: 'string' },
         postCount: { type: 'number' },
         posts: {
           type: 'array',
@@ -194,7 +343,7 @@ export class TagsController {
 
   @Get('slug/:slug')
   @ApiOperation({ summary: 'Get a tag by slug' })
-  @ApiParam({ name: 'slug', description: 'Tag slug' })
+  @ApiParam({ name: 'slug', description: 'Tag slug', example: 'javascript' })
   @ApiResponse({ status: 200, description: 'Tag retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Tag not found' })
   findBySlug(@Param('slug') slug: string) {
@@ -203,7 +352,7 @@ export class TagsController {
 
   @Get('slug/:slug/with-posts')
   @ApiOperation({ summary: 'Get tag by slug with its posts' })
-  @ApiParam({ name: 'slug', description: 'Tag slug' })
+  @ApiParam({ name: 'slug', description: 'Tag slug', example: 'javascript' })
   @ApiResponse({
     status: 200,
     description: 'Tag with posts retrieved successfully',
@@ -217,7 +366,7 @@ export class TagsController {
 
   @Get('slug/:slug/posts')
   @ApiOperation({ summary: 'Get posts for tag by slug' })
-  @ApiParam({ name: 'slug', description: 'Tag slug' })
+  @ApiParam({ name: 'slug', description: 'Tag slug', example: 'javascript' })
   @ApiResponse({ status: 200, description: 'Tag posts retrieved successfully' })
   getTagPostsBySlug(
     @Param('slug') slug: string,
@@ -227,9 +376,12 @@ export class TagsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a tag' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update a tag (Admin only)' })
   @ApiParam({ name: 'id', description: 'Tag ID' })
   @ApiResponse({ status: 200, description: 'Tag updated successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Tag not found' })
   update(@Param('id') id: string, @Body() updateTagDto: UpdateTagDto) {
     return this.tagsService.update(id, updateTagDto);
@@ -237,9 +389,13 @@ export class TagsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a tag' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a tag (Admin only)' })
   @ApiParam({ name: 'id', description: 'Tag ID' })
   @ApiResponse({ status: 204, description: 'Tag deleted successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 400, description: 'Cannot delete tag with posts' })
   @ApiResponse({ status: 404, description: 'Tag not found' })
   remove(@Param('id') id: string) {
     return this.tagsService.remove(id);
