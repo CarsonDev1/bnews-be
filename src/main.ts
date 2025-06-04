@@ -1,4 +1,4 @@
-// src/main.ts - COMPLETE CORS FIX
+// src/main.ts - MINIMAL VERSION WITHOUT HELMET
 import { NestFactory } from '@nestjs/core';
 import {
   FastifyAdapter,
@@ -7,6 +7,7 @@ import {
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import * as path from 'path';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -14,91 +15,55 @@ async function bootstrap() {
     new FastifyAdapter({ logger: true, bodyLimit: 10485760 }),
   );
 
-  // Register Fastify plugins
-  await app.register(require('@fastify/helmet'), {
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: [`'self'`],
-        styleSrc: [`'self'`, `'unsafe-inline'`],
-        fontSrc: [`'self'`],
-        imgSrc: [`'self'`, 'data:', 'validator.swagger.io', '*.cloudinary.com'],
-        scriptSrc: [`'self'`],
-      },
-    },
-  });
+  // REMOVED: Helmet for development to avoid CSP issues
+  // await app.register(require('@fastify/helmet'), { ... });
 
-  // FIX: Complete CORS configuration for all methods
+  // Simple CORS - Allow everything for development
   await app.register(require('@fastify/cors'), {
-    // Allow all origins in development, specify in production
-    origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, curl, Postman)
-      if (!origin) return callback(null, true);
-
-      // Allow all localhost origins
-      if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-        return callback(null, true);
-      }
-
-      // In production, add your domain here
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://localhost:5173',
-        'http://localhost:8080',
-        'http://127.0.0.1:3000',
-        'http://127.0.0.1:5173',
-        // Add your production domain
-        // 'https://your-domain.com'
-      ];
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      // Allow all origins in development
-      if (process.env.NODE_ENV === 'development') {
-        return callback(null, true);
-      }
-
-      return callback(new Error('Not allowed by CORS'), false);
-    },
-
-    // Enable credentials for cookies/auth
+    origin: true, // Allow all origins
     credentials: true,
-
-    // Allow all HTTP methods
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-
-    // Allow common headers
-    allowedHeaders: [
-      'Origin',
-      'X-Requested-With',
-      'Content-Type',
-      'Accept',
-      'Authorization',
-      'Cache-Control',
-      'Pragma',
-      'Expires',
-      'X-CSRF-Token',
-    ],
-
-    // Expose headers to frontend
-    exposedHeaders: ['set-cookie', 'X-Total-Count', 'X-Page-Count'],
-
-    // Cache preflight for 24 hours
-    maxAge: 86400,
-
-    // Handle preflight requests
-    optionsSuccessStatus: 200,
+    allowedHeaders: ['*'],
+    exposedHeaders: ['*'],
   });
 
   // Register multipart support for file uploads
   await app.register(require('@fastify/multipart'), {
     limits: {
       fileSize: 10 * 1024 * 1024, // 10MB
-      files: 1, // Maximum number of files
+      files: 1,
     },
-    addToBody: true, // Add fields to request body
+    addToBody: true,
+  });
+
+  // Static file serving - Simple configuration
+  const uploadsPath = path.join(__dirname, '..', 'uploads');
+  console.log('📁 Serving static files from:', uploadsPath);
+
+  await app.register(require('@fastify/static'), {
+    root: uploadsPath,
+    prefix: '/uploads/',
+    decorateReply: false,
+    setHeaders: (res, pathName) => {
+      // Simple headers for development
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+
+      // Set content type for images
+      const ext = path.extname(pathName).toLowerCase();
+      const mimeTypes = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+      };
+
+      if (mimeTypes[ext]) {
+        res.setHeader('Content-Type', mimeTypes[ext]);
+      }
+    },
   });
 
   // Global validation pipe
@@ -107,7 +72,6 @@ async function bootstrap() {
       transform: true,
       whitelist: true,
       forbidNonWhitelisted: true,
-      // Allow empty strings to be transformed to undefined
       transformOptions: {
         enableImplicitConversion: true,
       },
@@ -117,7 +81,7 @@ async function bootstrap() {
   // Swagger setup
   const config = new DocumentBuilder()
     .setTitle('Forum API')
-    .setDescription('Forum Backend API Documentation with Authentication')
+    .setDescription('Forum Backend API Documentation')
     .setVersion('1.0')
     .addTag('auth', 'Authentication endpoints')
     .addTag('users', 'User management endpoints')
@@ -134,14 +98,14 @@ async function bootstrap() {
         description: 'Enter JWT token',
         in: 'header',
       },
-      'JWT-auth', // This name here is important for matching up with @ApiBearerAuth() in your controller!
+      'JWT-auth',
     )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document, {
     swaggerOptions: {
-      persistAuthorization: true, // Keep auth token after page refresh
+      persistAuthorization: true,
       tagsSorter: 'alpha',
       operationsSorter: 'alpha',
     },
@@ -152,26 +116,12 @@ async function bootstrap() {
 
   console.log(`🚀 Forum API is running on: http://localhost:${port}`);
   console.log(`📚 Swagger documentation: http://localhost:${port}/api`);
-  console.log(`☁️  Cloudinary integration enabled`);
-  console.log(`🌐 CORS enabled for all localhost origins`);
-  console.log(`📋 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🖼️  Images served at: http://localhost:${port}/uploads/`);
+  console.log(`🔗 Test: http://localhost:${port}/uploads/posts/f141b559-03af-4c5b-94e1-6dac0665933a.webp`);
+  console.log(`⚠️  Security headers disabled for development`);
 }
 
 bootstrap().catch((error) => {
   console.error('❌ Application failed to start:', error);
   process.exit(1);
 });
-
-// Alternative simpler CORS config if above is too complex
-// Replace the CORS section with this if you prefer:
-/*
-await app.register(require('@fastify/cors'), {
-  origin: true, // Allow all origins in development
-  credentials: true,
-  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'X-Requested-With', 'Accept'],
-  exposedHeaders: ['set-cookie'],
-  maxAge: 86400,
-  optionsSuccessStatus: 200,
-});
-*/

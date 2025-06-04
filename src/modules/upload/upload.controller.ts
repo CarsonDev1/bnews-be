@@ -1,14 +1,11 @@
+// src/modules/upload/upload.controller.ts - FIXED VERSION
 import {
   Controller,
   Post,
-  UploadedFile,
-  UseInterceptors,
   UseGuards,
   BadRequestException,
-  Body,
   Req,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
@@ -22,24 +19,14 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UploadService } from './upload.service';
 import { FastifyRequest } from 'fastify';
 
-interface FastifyMultipartFile {
-  fieldname: string;
-  filename: string;
-  encoding: string;
-  mimetype: string;
-  file: NodeJS.ReadableStream;
-  toBuffer(): Promise<Buffer>;
-}
-
 @ApiTags('upload')
 @Controller('upload')
 export class UploadController {
-  constructor(private readonly uploadService: UploadService) {}
+  constructor(private readonly uploadService: UploadService) { }
 
   @Post('avatar')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Upload user avatar' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -59,30 +46,46 @@ export class UploadController {
     schema: {
       type: 'object',
       properties: {
+        message: { type: 'string' },
         url: { type: 'string' },
-        publicId: { type: 'string' },
+        filename: { type: 'string' },
         width: { type: 'number' },
         height: { type: 'number' },
+        size: { type: 'number' },
       },
     },
   })
   async uploadAvatar(
-    @UploadedFile() file: Express.Multer.File,
     @CurrentUser('id') userId: string,
+    @Req() request: FastifyRequest,
   ) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
+    try {
+      const data = await (request as any).file();
+
+      if (!data) {
+        throw new BadRequestException('No file uploaded');
+      }
+
+      const buffer = await data.toBuffer();
+      this.uploadService.validateFileBuffer(buffer, data.mimetype, data.filename);
+
+      const result = await this.uploadService.uploadAvatar(buffer, data.filename);
+
+      return {
+        message: 'Avatar uploaded successfully',
+        url: result.url,
+        filename: result.filename,
+        width: result.width,
+        height: result.height,
+        size: result.size,
+      };
+    } catch (error) {
+      console.error('Avatar upload error:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Upload failed: ${error.message}`);
     }
-
-    const result = await this.uploadService.uploadAvatar(file.buffer);
-
-    return {
-      message: 'Avatar uploaded successfully',
-      url: result.secure_url,
-      publicId: result.public_id,
-      width: result.width,
-      height: result.height,
-    };
   }
 
   @Post('post-image')
@@ -111,9 +114,10 @@ export class UploadController {
       properties: {
         message: { type: 'string' },
         url: { type: 'string' },
-        publicId: { type: 'string' },
+        filename: { type: 'string' },
         width: { type: 'number' },
         height: { type: 'number' },
+        size: { type: 'number' },
         responsive: {
           type: 'object',
           properties: {
@@ -138,32 +142,27 @@ export class UploadController {
       }
 
       const buffer = await data.toBuffer();
+      this.uploadService.validateFileBuffer(buffer, data.mimetype, data.filename);
 
-      // Validate file\
-      this.validateFile(data, buffer);
-
-      const result = await this.uploadService.uploadPostImage(buffer);
+      const result = await this.uploadService.uploadPostImage(buffer, data.filename);
 
       // Generate responsive URLs
-      const responsiveUrls = this.uploadService.generateResponsiveImageUrls(
-        result.public_id,
-      );
+      const responsiveUrls = this.uploadService.generateResponsiveImageUrls(result.url);
 
       return {
         message: 'Post image uploaded successfully',
-        url: result.secure_url,
-        publicId: result.public_id,
+        url: result.url,
+        filename: result.filename,
         width: result.width,
         height: result.height,
+        size: result.size,
         responsive: responsiveUrls,
       };
     } catch (error) {
       console.error('Post image upload error:', error);
-
       if (error instanceof BadRequestException) {
         throw error;
       }
-
       throw new BadRequestException(`Upload failed: ${error.message}`);
     }
   }
@@ -171,7 +170,6 @@ export class UploadController {
   @Post('category-icon')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Upload category icon' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -190,28 +188,41 @@ export class UploadController {
     description: 'Category icon uploaded successfully',
   })
   async uploadCategoryIcon(
-    @UploadedFile() file: Express.Multer.File,
     @CurrentUser('id') userId: string,
+    @Req() request: FastifyRequest,
   ) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
+    try {
+      const data = await (request as any).file();
+
+      if (!data) {
+        throw new BadRequestException('No file uploaded');
+      }
+
+      const buffer = await data.toBuffer();
+      this.uploadService.validateFileBuffer(buffer, data.mimetype, data.filename);
+
+      const result = await this.uploadService.uploadCategoryIcon(buffer, data.filename);
+
+      return {
+        message: 'Category icon uploaded successfully',
+        url: result.url,
+        filename: result.filename,
+        width: result.width,
+        height: result.height,
+        size: result.size,
+      };
+    } catch (error) {
+      console.error('Category icon upload error:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Upload failed: ${error.message}`);
     }
-
-    const result = await this.uploadService.uploadCategoryIcon(file.buffer);
-
-    return {
-      message: 'Category icon uploaded successfully',
-      url: result.secure_url,
-      publicId: result.public_id,
-      width: result.width,
-      height: result.height,
-    };
   }
 
   @Post('editor-image')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Upload image for rich text editor' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -230,55 +241,37 @@ export class UploadController {
     description: 'Editor image uploaded successfully',
   })
   async uploadEditorImage(
-    @UploadedFile() file: Express.Multer.File,
     @CurrentUser('id') userId: string,
+    @Req() request: FastifyRequest,
   ) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
+    try {
+      const data = await (request as any).file();
 
-    const result = await this.uploadService.uploadImage(
-      file.buffer,
-      'forum/editor',
-      {
-        width: 1000,
-        quality: 80,
-        format: 'webp',
-      },
-    );
+      if (!data) {
+        throw new BadRequestException('No file uploaded');
+      }
 
-    return {
-      message: 'Editor image uploaded successfully',
-      url: result.secure_url,
-      publicId: result.public_id,
-      width: result.width,
-      height: result.height,
-    };
-  }
+      const buffer = await data.toBuffer();
+      this.uploadService.validateFileBuffer(buffer, data.mimetype, data.filename);
 
-  private validateFile(file: FastifyMultipartFile, buffer: Buffer): void {
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      const result = await this.uploadService.uploadEditorImage(buffer, data.filename);
 
-    if (buffer.length > maxSize) {
-      throw new BadRequestException(
-        `File size too large. Maximum size is ${maxSize / 1024 / 1024}MB`,
-      );
-    }
-
-    if (!allowedTypes.includes(file.mimetype)) {
-      throw new BadRequestException(
-        `Invalid file type. Allowed types: ${allowedTypes.join(', ')}`,
-      );
-    }
-
-    if (!file.filename) {
-      throw new BadRequestException('File must have a filename');
-    }
-
-    // Additional validation for image files
-    if (!file.filename.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
-      throw new BadRequestException('File must have a valid image extension');
+      return {
+        message: 'Editor image uploaded successfully',
+        url: result.url,
+        filename: result.filename,
+        width: result.width,
+        height: result.height,
+        size: result.size,
+      };
+    } catch (error) {
+      console.error('Editor image upload error:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Upload failed: ${error.message}`);
     }
   }
+
+  // REMOVED: serveFile routes - let @fastify/static handle this
 }

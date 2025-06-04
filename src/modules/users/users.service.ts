@@ -1,3 +1,4 @@
+// src/modules/users/users.service.ts - UPDATED FOR LOCAL STORAGE
 import {
   Injectable,
   NotFoundException,
@@ -23,7 +24,7 @@ export class UsersService {
     @InjectModel(UserActivity.name)
     private userActivityModel: Model<UserActivityDocument>,
     private uploadService: UploadService,
-  ) {}
+  ) { }
 
   async findAll(query: QueryUserDto) {
     const {
@@ -148,23 +149,25 @@ export class UsersService {
     }
 
     // Delete old avatar if exists
-    if (user.avatar && user.avatar.includes('cloudinary.com')) {
-      const publicId = this.extractPublicIdFromUrl(user.avatar);
-      if (publicId) {
-        await this.uploadService.deleteImage(publicId);
+    if (user.avatar && user.avatar.includes('/uploads/')) {
+      try {
+        await this.uploadService.deleteImageByUrl(user.avatar);
+      } catch (error) {
+        console.warn('Failed to delete old avatar:', error.message);
+        // Continue with upload even if deletion fails
       }
     }
 
     // Upload new avatar
     const uploadResult = await this.uploadService.uploadAvatar(avatarFile);
 
-    // Update user with new avatar URL
+    // Update user with new avatar URL and file path
     const updatedUser = await this.userModel
       .findByIdAndUpdate(
         userId,
         {
-          avatar: uploadResult.secure_url,
-          avatarPublicId: uploadResult.public_id, // Store for future deletion
+          avatar: uploadResult.url,
+          avatarPublicId: uploadResult.filename, // Store filename for future deletion
         },
         { new: true },
       )
@@ -174,16 +177,13 @@ export class UsersService {
     return updatedUser as User;
   }
 
-  private extractPublicIdFromUrl(url: string): string | null {
+  // Updated method to extract filename from local URL
+  private extractFilenameFromUrl(url: string): string | null {
     try {
-      const parts = url.split('/');
-      const uploadIndex = parts.findIndex((part) => part === 'upload');
-      if (uploadIndex !== -1 && uploadIndex < parts.length - 1) {
-        // Get everything after 'upload' and before file extension
-        const pathAfterUpload = parts.slice(uploadIndex + 2).join('/');
-        return pathAfterUpload.replace(/\.[^/.]+$/, ''); // Remove extension
-      }
-      return null;
+      // For local URLs like: http://localhost:5000/uploads/avatars/filename.webp
+      const urlParts = url.split('/');
+      const filename = urlParts[urlParts.length - 1];
+      return filename || null;
     } catch {
       return null;
     }
@@ -355,6 +355,15 @@ export class UsersService {
     const user = await this.userModel.findById(id);
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    // Delete user's avatar if exists
+    if (user.avatar && user.avatar.includes('/uploads/')) {
+      try {
+        await this.uploadService.deleteImageByUrl(user.avatar);
+      } catch (error) {
+        console.warn('Failed to delete user avatar during removal:', error.message);
+      }
     }
 
     // In production, you might want to soft delete or anonymize instead

@@ -1,13 +1,12 @@
+// src/app.module.ts - FIXED VERSION
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { PostsModule } from './modules/posts/posts.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
-import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { Category, CategorySchema } from './schemas/category.schema';
@@ -24,6 +23,7 @@ import {
 } from './schemas/user-activity.schema';
 import { UploadModule } from 'src/modules/upload/upload.module';
 import { ProductsModule } from 'src/modules/products/products.module';
+import { CommentsModule } from 'src/modules/comments/comments.module';
 
 @Module({
   imports: [
@@ -57,15 +57,10 @@ import { ProductsModule } from 'src/modules/products/products.module';
     TagsModule,
     UploadModule,
     ProductsModule,
+    CommentsModule,
+    // REMOVED StaticModule - let @fastify/static handle everything
   ],
   controllers: [AppController],
-  providers: [
-    AppService,
-    // Global JWT Guard (optional - makes all routes protected by default)
-    // {
-    //   provide: APP_GUARD,
-    //   useClass: JwtAuthGuard,
-    // },
-  ],
+  providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
