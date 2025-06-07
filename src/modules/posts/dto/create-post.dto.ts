@@ -7,6 +7,9 @@ import {
   IsMongoId,
   IsDateString,
   ValidateNested,
+  MaxLength,
+  MinLength,
+  Matches,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
@@ -49,6 +52,22 @@ export class CreatePostDto {
   @ApiProperty({ description: 'Post title' })
   @IsString()
   title: string;
+
+  // NEW: Manual slug input with validation
+  @ApiProperty({
+    description: 'Post slug (URL-friendly identifier)',
+    example: 'my-awesome-post',
+    minLength: 3,
+    maxLength: 100
+  })
+  @IsString()
+  @MinLength(3, { message: 'Slug must be at least 3 characters long' })
+  @MaxLength(100, { message: 'Slug must not exceed 100 characters' })
+  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, {
+    message: 'Slug must contain only lowercase letters, numbers, and hyphens. Cannot start or end with hyphen.',
+  })
+  @Transform(({ value }) => value?.toLowerCase()?.trim())
+  slug: string;
 
   @ApiPropertyOptional({ description: 'Post excerpt' })
   @IsOptional()

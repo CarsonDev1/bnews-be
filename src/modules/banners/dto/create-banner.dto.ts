@@ -1,3 +1,5 @@
+// src/modules/banners/dto/create-banner.dto.ts - FIXED URL VALIDATION
+
 import {
   IsString,
   IsOptional,
@@ -9,7 +11,6 @@ import {
   ValidateNested,
   IsUrl,
   Min,
-  isMongoId,
   IsMongoId,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -81,53 +82,104 @@ export class QueryBannerDto {
 }
 
 export class BannerImageDto {
-  @ApiProperty({ description: 'Image URL' })
-  @IsString()
-  @IsUrl()
+  @ApiProperty({
+    description: 'Image URL',
+    example: 'http://localhost:5000/uploads/banners/banner-image.webp'
+  })
+  @IsString({ message: 'URL must be a string' })
+  @IsUrl({
+    protocols: ['http', 'https'],
+    require_protocol: true,
+    require_host: true,
+    require_valid_protocol: true,
+    allow_underscores: true,
+    allow_trailing_dot: false,
+    allow_protocol_relative_urls: false,
+    disallow_auth: false
+  }, {
+    message: 'url must be a valid URL address (e.g., http://localhost:5000/uploads/banners/image.webp)'
+  })
+  @Transform(({ obj }) => obj.URL || obj.url) // Accept both URL and url
   url: string;
 
-  @ApiProperty({ description: 'Image filename' })
-  @IsString()
+  @ApiProperty({
+    description: 'Image filename',
+    example: 'banner-image.webp'
+  })
+  @IsString({ message: 'filename must be a string' })
   filename: string;
 
-  @ApiPropertyOptional({ description: 'Alt text for accessibility' })
+  @ApiPropertyOptional({
+    description: 'Alt text for accessibility',
+    example: 'Banner showing new product promotion'
+  })
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'alt must be a string' })
   alt?: string;
 
-  @ApiPropertyOptional({ description: 'Image title' })
+  @ApiPropertyOptional({
+    description: 'Image title',
+    example: 'New Product Banner'
+  })
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'title must be a string' })
   title?: string;
 
-  @ApiProperty({ description: 'Image width in pixels' })
-  @IsNumber()
-  @Min(1)
+  @ApiProperty({
+    description: 'Image width in pixels',
+    example: 1920,
+    minimum: 1
+  })
+  @IsNumber({}, { message: 'width must be a number' })
+  @Min(1, { message: 'width must be at least 1 pixel' })
+  @Type(() => Number)
   width: number;
 
-  @ApiProperty({ description: 'Image height in pixels' })
-  @IsNumber()
-  @Min(1)
+  @ApiProperty({
+    description: 'Image height in pixels',
+    example: 600,
+    minimum: 1
+  })
+  @IsNumber({}, { message: 'height must be a number' })
+  @Min(1, { message: 'height must be at least 1 pixel' })
+  @Type(() => Number)
   height: number;
 
-  @ApiProperty({ description: 'File size in bytes' })
-  @IsNumber()
-  @Min(1)
+  @ApiProperty({
+    description: 'File size in bytes',
+    example: 156789,
+    minimum: 1
+  })
+  @IsNumber({}, { message: 'size must be a number' })
+  @Min(1, { message: 'size must be at least 1 byte' })
+  @Type(() => Number)
   size: number;
 
-  @ApiPropertyOptional({ description: 'Display order', default: 0 })
+  @ApiPropertyOptional({
+    description: 'Display order',
+    example: 0,
+    default: 0,
+    minimum: 0
+  })
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  order?: number;
+  @IsNumber({}, { message: 'order must be a number' })
+  @Min(0, { message: 'order must be at least 0' })
+  @Type(() => Number)
+  order?: number = 0;
 }
 
 export class CreateBannerDto {
-  @ApiProperty({ description: 'Banner title' })
+  @ApiProperty({
+    description: 'Banner title',
+    example: 'Holiday Sale Banner'
+  })
   @IsString()
   title: string;
 
-  @ApiPropertyOptional({ description: 'Banner description' })
+  @ApiPropertyOptional({
+    description: 'Banner description',
+    example: 'Special holiday promotion banner'
+  })
   @IsOptional()
   @IsString()
   description?: string;
@@ -150,8 +202,20 @@ export class CreateBannerDto {
   status?: BannerStatus;
 
   @ApiPropertyOptional({
-    description: 'Banner images',
+    description: 'Banner images array',
     type: [BannerImageDto],
+    example: [
+      {
+        url: 'http://localhost:5000/uploads/banners/banner-1.webp',
+        filename: 'banner-1.webp',
+        alt: 'Holiday sale banner',
+        title: 'Holiday Sale',
+        width: 1920,
+        height: 600,
+        size: 156789,
+        order: 0
+      }
+    ]
   })
   @IsOptional()
   @IsArray()
@@ -159,45 +223,74 @@ export class CreateBannerDto {
   @Type(() => BannerImageDto)
   images?: BannerImageDto[];
 
-  @ApiPropertyOptional({ description: 'HTML content' })
+  @ApiPropertyOptional({
+    description: 'HTML content',
+    example: '<h2>Special Offer!</h2><p>Get 50% off on selected items</p>'
+  })
   @IsOptional()
   @IsString()
   content?: string;
 
-  @ApiPropertyOptional({ description: 'Link URL' })
+  @ApiPropertyOptional({
+    description: 'Link URL',
+    example: 'https://example.com/sale'
+  })
   @IsOptional()
-  @IsUrl()
+  @IsUrl({}, { message: 'Link URL must be a valid URL address' })
   linkUrl?: string;
 
-  @ApiPropertyOptional({ description: 'Open link in new tab', default: false })
+  @ApiPropertyOptional({
+    description: 'Open link in new tab',
+    default: false,
+    example: false
+  })
   @IsOptional()
   @IsBoolean()
   @Transform(({ value }) => value === 'true' || value === true)
   openInNewTab?: boolean;
 
-  @ApiPropertyOptional({ description: 'Button text' })
+  @ApiPropertyOptional({
+    description: 'Button text',
+    example: 'Shop Now'
+  })
   @IsOptional()
   @IsString()
   buttonText?: string;
 
-  @ApiPropertyOptional({ description: 'Display order', default: 0 })
+  @ApiPropertyOptional({
+    description: 'Display order',
+    default: 0,
+    example: 1,
+    minimum: 0
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)
   order?: number;
 
-  @ApiPropertyOptional({ description: 'Priority (higher shows first)', default: 0 })
+  @ApiPropertyOptional({
+    description: 'Priority (higher shows first)',
+    default: 0,
+    example: 10,
+    minimum: 0
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)
   priority?: number;
 
-  @ApiPropertyOptional({ description: 'Start date (ISO string)' })
+  @ApiPropertyOptional({
+    description: 'Start date (ISO string)',
+    example: '2024-12-01T00:00:00.000Z'
+  })
   @IsOptional()
   @IsDateString()
   startDate?: string;
 
-  @ApiPropertyOptional({ description: 'End date (ISO string)' })
+  @ApiPropertyOptional({
+    description: 'End date (ISO string)',
+    example: '2024-12-31T23:59:59.999Z'
+  })
   @IsOptional()
   @IsDateString()
   endDate?: string;
@@ -205,6 +298,7 @@ export class CreateBannerDto {
   @ApiPropertyOptional({
     description: 'Show only on specific categories',
     type: [String],
+    example: ['technology', 'mobile']
   })
   @IsOptional()
   @IsArray()
@@ -214,6 +308,7 @@ export class CreateBannerDto {
   @ApiPropertyOptional({
     description: 'Show only on specific tags',
     type: [String],
+    example: ['sale', 'promotion']
   })
   @IsOptional()
   @IsArray()
@@ -224,17 +319,24 @@ export class CreateBannerDto {
     description: 'Target device',
     enum: ['desktop', 'mobile', 'all'],
     default: 'all',
+    example: 'all'
   })
   @IsOptional()
   @IsString()
   targetDevice?: 'desktop' | 'mobile' | 'all';
 
-  @ApiPropertyOptional({ description: 'SEO title' })
+  @ApiPropertyOptional({
+    description: 'SEO title',
+    example: 'Holiday Sale Banner - Special Offers'
+  })
   @IsOptional()
   @IsString()
   seoTitle?: string;
 
-  @ApiPropertyOptional({ description: 'SEO description' })
+  @ApiPropertyOptional({
+    description: 'SEO description',
+    example: 'Check out our amazing holiday sale with up to 50% off on selected items'
+  })
   @IsOptional()
   @IsString()
   seoDescription?: string;

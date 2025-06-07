@@ -31,14 +31,14 @@ import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { QueryUserDto } from './dto/query-user.dto';
-import { UserResponseDto } from './dto/user-response.dto';
+import { UserResponseDto, UserStatsResponseDto } from './dto/user-response.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('users')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly usersService: UsersService) { }
 
   @Post('profile/avatar')
   @UseGuards(JwtAuthGuard)
@@ -383,26 +383,38 @@ export class UsersController {
   }
 
   @Get(':id/stats')
-  @ApiOperation({ summary: 'Get user statistics by ID' })
+  @ApiOperation({
+    summary: 'Get comprehensive user statistics by ID',
+    description: 'Get detailed user profile and statistics including website, location, activity metrics, and profile completion'
+  })
   @ApiParam({ name: 'id', description: 'User ID' })
   @ApiResponse({
     status: 200,
-    description: 'User statistics retrieved successfully',
+    description: 'Comprehensive user statistics retrieved successfully',
+    type: UserStatsResponseDto,
   })
   getUserStats(@Param('id') id: string) {
     return this.usersService.getUserStats(id);
   }
 
   @Get('username/:username/stats')
-  @ApiOperation({ summary: 'Get user statistics by username' })
+  @ApiOperation({
+    summary: 'Get comprehensive user statistics by username',
+    description: 'Get detailed user profile and statistics by username including website, location, activity metrics, and profile completion'
+  })
   @ApiParam({ name: 'username', description: 'Username' })
   @ApiResponse({
     status: 200,
-    description: 'User statistics retrieved successfully',
+    description: 'Comprehensive user statistics retrieved successfully',
+    type: UserStatsResponseDto,
   })
   async getUserStatsByUsername(@Param('username') username: string) {
     const user = await this.usersService.findByUsername(username);
-    return this.usersService.getUserStats(user._id.toString());
+    const stats = await this.usersService.getUserStats(user._id.toString());
+
+    stats.metadata.canEdit = false; // Set based on auth context
+
+    return stats;
   }
 
   @Delete(':id')

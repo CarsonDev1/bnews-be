@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-const slug = require('slug');
 import {
   Post,
   PostDocument,
@@ -29,17 +28,39 @@ export class PostsService {
     private tagsService: TagsService,
     private usersService: UsersService,
     private productsService: ProductsService,
-  ) {}
+  ) { }
+
+  // NEW: Slug validation helper
+  private validateSlug(slug: string): void {
+    if (!slug) {
+      throw new BadRequestException('Slug is required');
+    }
+
+    if (slug.length < 3) {
+      throw new BadRequestException('Slug must be at least 3 characters long');
+    }
+
+    if (slug.length > 100) {
+      throw new BadRequestException('Slug must not exceed 100 characters');
+    }
+
+    // Check slug format
+    const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    if (!slugRegex.test(slug)) {
+      throw new BadRequestException(
+        'Slug must contain only lowercase letters, numbers, and hyphens. Cannot start or end with hyphen.'
+      );
+    }
+  }
 
   async create(createPostDto: CreatePostDto, authorId: string): Promise<Post> {
-    const postSlug = slug(createPostDto.title, { lower: true });
+    // NEW: Validate manual slug
+    this.validateSlug(createPostDto.slug);
 
     // Check if slug already exists
-    let finalSlug = postSlug;
-    let counter = 1;
-    while (await this.postModel.findOne({ slug: finalSlug })) {
-      finalSlug = `${postSlug}-${counter}`;
-      counter++;
+    const existingPost = await this.postModel.findOne({ slug: createPostDto.slug });
+    if (existingPost) {
+      throw new BadRequestException('Slug already exists. Please choose a different slug.');
     }
 
     // Validate category exists
@@ -51,7 +72,8 @@ export class PostsService {
         await this.tagsService.findOne(tagId);
       }
     }
-    //Process and validate related products
+
+    // Process and validate related products
     let processedRelatedProducts: RelatedProduct[] = [];
     if (
       createPostDto.relatedProducts &&
@@ -64,8 +86,8 @@ export class PostsService {
 
     const postData = {
       ...createPostDto,
-      slug: finalSlug,
-      authorId: new Types.ObjectId(authorId), // Set author from JWT
+      slug: createPostDto.slug, // Use provided slug directly
+      authorId: new Types.ObjectId(authorId),
       publishedAt: createPostDto.publishedAt
         ? new Date(createPostDto.publishedAt)
         : createPostDto.status === PostStatus.PUBLISHED
@@ -79,7 +101,7 @@ export class PostsService {
     const post = new this.postModel(postData);
     const savedPost = await post.save();
 
-    // Update category post count
+    // Update counters
     await this.categoriesService.incrementPostCount(createPostDto.categoryId);
     if (createPostDto.tagIds && createPostDto.tagIds.length > 0) {
       for (const tagId of createPostDto.tagIds) {
@@ -106,7 +128,6 @@ export class PostsService {
       try {
         console.log('🔍 Processing product:', productDto.url_key);
 
-        // If productDto doesn't have url_key, skip validation
         if (!productDto.url_key) {
           console.warn('⚠️ Product missing url_key, skipping:', productDto);
           continue;
@@ -115,7 +136,6 @@ export class PostsService {
         let relatedProduct: RelatedProduct;
 
         try {
-          // Try to validate product exists by searching external API
           const validatedProducts =
             await this.productsService.validateProductSelection([
               productDto.url_key,
@@ -125,7 +145,6 @@ export class PostsService {
             const validatedProduct = validatedProducts[0];
             console.log('✅ Product validated:', validatedProduct.name);
 
-            // Map external product data to our schema
             relatedProduct = {
               name: validatedProduct.name,
               url_key: validatedProduct.url_key,
@@ -158,7 +177,6 @@ export class PostsService {
           );
           console.log('📝 Using provided data as-is');
 
-          // Use provided data if validation fails
           relatedProduct = {
             name: productDto.name || 'Unknown Product',
             url_key: productDto.url_key,
@@ -179,7 +197,6 @@ export class PostsService {
           `❌ Error processing product ${productDto.url_key}:`,
           error,
         );
-        // Continue with other products, don't fail the entire operation
       }
     }
 
@@ -375,11 +392,28 @@ export class PostsService {
     return post;
   }
 
+  // IMPROVED: Better slug handling with length validation
   async findBySlug(slug: string): Promise<Post> {
     console.log('🔍 Finding post by slug:', slug);
 
+    // Validate slug length and format before querying
+    if (!slug || slug.length < 3) {
+      throw new BadRequestException('Invalid slug: too short');
+    }
+
+    if (slug.length > 100) {
+      throw new BadRequestException('Invalid slug: too long (max 100 characters)');
+    }
+
+    // Sanitize slug - remove any dangerous characters
+    const sanitizedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
+
+    if (sanitizedSlug !== slug) {
+      console.warn(`⚠️ Slug sanitized: "${slug}" -> "${sanitizedSlug}"`);
+    }
+
     const post = await this.postModel
-      .findOne({ slug, status: PostStatus.PUBLISHED })
+      .findOne({ slug: sanitizedSlug, status: PostStatus.PUBLISHED })
       .populate({
         path: 'categoryId',
         select: 'name slug description icon',
@@ -397,7 +431,7 @@ export class PostsService {
       .exec();
 
     if (!post) {
-      throw new NotFoundException('Post not found');
+      throw new NotFoundException(`Post with slug "${slug}" not found`);
     }
 
     // Increment view count
@@ -433,22 +467,25 @@ export class PostsService {
 
       const updateData: any = { ...updatePostDto };
 
-      // Generate new slug if title is being updated
-      if (updatePostDto.title) {
-        console.log('🔍 Updating title, generating new slug...');
-        const newSlug = slug(updatePostDto.title, { lower: true });
-        let finalSlug = newSlug;
-        let counter = 1;
+      // NEW: Handle manual slug update with validation
+      if (updatePostDto.slug && updatePostDto.slug !== existingPost.slug) {
+        console.log('🔍 Updating slug manually...');
 
-        while (
-          await this.postModel.findOne({ slug: finalSlug, _id: { $ne: id } })
-        ) {
-          finalSlug = `${newSlug}-${counter}`;
-          counter++;
+        // Validate new slug
+        this.validateSlug(updatePostDto.slug);
+
+        // Check if new slug already exists
+        const existingSlugPost = await this.postModel.findOne({
+          slug: updatePostDto.slug,
+          _id: { $ne: id }
+        });
+
+        if (existingSlugPost) {
+          throw new BadRequestException('Slug already exists. Please choose a different slug.');
         }
 
-        updateData.slug = finalSlug;
-        console.log('🔍 New slug:', finalSlug);
+        updateData.slug = updatePostDto.slug;
+        console.log('🔍 New slug validated:', updatePostDto.slug);
       }
 
       // Handle category change
@@ -471,7 +508,6 @@ export class PostsService {
       if (updatePostDto.tagIds !== undefined) {
         console.log('🔍 Updating tags...');
 
-        // Validate new tags exist
         if (updatePostDto.tagIds && updatePostDto.tagIds.length > 0) {
           for (const tagId of updatePostDto.tagIds) {
             await this.tagsService.findOne(tagId);
@@ -481,14 +517,12 @@ export class PostsService {
         const oldTagIds = existingPost.tagIds.map((id) => id.toString());
         const newTagIds = updatePostDto.tagIds || [];
 
-        // Decrement old tags
         for (const tagId of oldTagIds) {
           if (!newTagIds.includes(tagId)) {
             await this.tagsService.decrementPostCount(tagId);
           }
         }
 
-        // Increment new tags
         for (const tagId of newTagIds) {
           if (!oldTagIds.includes(tagId)) {
             await this.tagsService.incrementPostCount(tagId);
@@ -499,7 +533,7 @@ export class PostsService {
         console.log('🔍 Tags updated:', updateData.tagIds);
       }
 
-      // FIXED: Handle related products update properly
+      // Handle related products update
       if (updatePostDto.relatedProducts !== undefined) {
         console.log('🔍 Updating related products...');
         console.log(
@@ -516,18 +550,15 @@ export class PostsService {
           (Array.isArray(updatePostDto.relatedProducts) &&
             updatePostDto.relatedProducts.length === 0)
         ) {
-          // Clear related products
           updateData.relatedProducts = [];
           console.log('🔍 Clearing related products');
         } else if (
           Array.isArray(updatePostDto.relatedProducts) &&
           updatePostDto.relatedProducts.length > 0
         ) {
-          // Process and validate new related products
           console.log('🔍 Processing new related products...');
 
           try {
-            // FIXED: Always process the products, even if validation fails
             updateData.relatedProducts = await this.processRelatedProducts(
               updatePostDto.relatedProducts,
             );
@@ -538,7 +569,6 @@ export class PostsService {
           } catch (error) {
             console.error('❌ Error processing related products:', error);
 
-            // FIXED: Fallback to using provided data directly
             console.log('📝 Using provided data as fallback...');
             updateData.relatedProducts = updatePostDto.relatedProducts.map(
               (productDto) => ({
@@ -576,17 +606,11 @@ export class PostsService {
       }
 
       console.log('🔍 Final update data keys:', Object.keys(updateData));
-      console.log(
-        '🔍 Related products in update:',
-        updateData.relatedProducts?.length || 0,
-      );
 
-      // FIXED: Use $set to ensure the update works properly
       const updateOperation = {
         $set: updateData,
       };
 
-      // Perform the update
       const updatedPost = await this.postModel
         .findByIdAndUpdate(id, updateOperation, { new: true })
         .populate({
@@ -609,11 +633,6 @@ export class PostsService {
       }
 
       console.log('✅ Post updated successfully');
-      console.log(
-        '🔍 Updated post related products:',
-        updatedPost.relatedProducts?.length || 0,
-      );
-
       return updatedPost;
     } catch (error) {
       console.error('❌ Error updating post:', error);
@@ -631,20 +650,16 @@ export class PostsService {
       throw new NotFoundException('Post not found');
     }
 
-    // Check if user is the author (or admin)
     if (post.authorId.toString() !== userId) {
       throw new ForbiddenException('You can only delete your own posts');
     }
 
-    // Update category post count
     await this.categoriesService.decrementPostCount(post.categoryId.toString());
 
-    // Update tag post counts
     for (const tagId of post.tagIds) {
       await this.tagsService.decrementPostCount(tagId.toString());
     }
 
-    // Update user post count
     await this.usersService.decrementPostCount(post.authorId.toString());
 
     await this.postModel.findByIdAndDelete(id);
@@ -751,5 +766,77 @@ export class PostsService {
       .limit(limit)
       .lean(false)
       .exec();
+  }
+
+  // NEW: Check slug availability method
+  async checkSlugAvailability(slug: string): Promise<{
+    slug: string;
+    available: boolean;
+    message: string;
+    suggestions?: string[];
+  }> {
+    try {
+      // Validate slug format first
+      this.validateSlug(slug);
+
+      // Check if slug exists
+      const existingPost = await this.postModel.findOne({ slug }).select('_id title').exec();
+
+      if (existingPost) {
+        // Generate suggestions
+        const suggestions = await this.generateSlugSuggestions(slug);
+
+        return {
+          slug,
+          available: false,
+          message: 'Slug is already taken',
+          suggestions,
+        };
+      }
+
+      return {
+        slug,
+        available: true,
+        message: 'Slug is available',
+      };
+    } catch (error) {
+      throw new BadRequestException(error.message || 'Invalid slug format');
+    }
+  }
+
+  // NEW: Generate slug suggestions
+  private async generateSlugSuggestions(baseSlug: string, count: number = 3): Promise<string[]> {
+    const suggestions: string[] = [];
+    const currentYear = new Date().getFullYear();
+    const currentMonth = (new Date().getMonth() + 1).toString().padStart(2, '0');
+
+    // Try different patterns
+    const patterns = [
+      `${baseSlug}-${currentYear}`,
+      `${baseSlug}-${currentMonth}-${currentYear}`,
+      `${baseSlug}-new`,
+      `${baseSlug}-updated`,
+      `${baseSlug}-v2`,
+    ];
+
+    // Add numbered suggestions
+    for (let i = 1; i <= 5; i++) {
+      patterns.push(`${baseSlug}-${i}`);
+    }
+
+    // Check each pattern
+    for (const pattern of patterns) {
+      if (suggestions.length >= count) break;
+
+      // Ensure suggestion is within length limits
+      if (pattern.length <= 100) {
+        const exists = await this.postModel.findOne({ slug: pattern }).select('_id').exec();
+        if (!exists) {
+          suggestions.push(pattern);
+        }
+      }
+    }
+
+    return suggestions;
   }
 }

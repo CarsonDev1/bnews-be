@@ -8,6 +8,7 @@ export enum PostStatus {
   PUBLISHED = 'published',
   ARCHIVED = 'archived',
 }
+
 export interface RelatedProduct {
   name: string;
   url_key: string;
@@ -50,7 +51,20 @@ export class Post {
   @Prop({ required: true, trim: true })
   title: string;
 
-  @Prop({ required: true, unique: true, lowercase: true })
+  // UPDATED: Enhanced slug validation with length limits
+  @Prop({
+    required: true,
+    unique: true,
+    lowercase: true,
+    minlength: 3,
+    maxlength: 100,
+    validate: {
+      validator: function (v: string) {
+        return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(v);
+      },
+      message: 'Slug must contain only lowercase letters, numbers, and hyphens. Cannot start or end with hyphen.'
+    }
+  })
   slug: string;
 
   @Prop({ trim: true })
@@ -68,7 +82,6 @@ export class Post {
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Tag' }], default: [] })
   tagIds: Types.ObjectId[];
 
-  // UPDATED: Author field is now required
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   authorId: Types.ObjectId;
 
@@ -124,10 +137,10 @@ export class Post {
 
 export const PostSchema = SchemaFactory.createForClass(Post);
 
-// Add indexes for SEO and performance
-PostSchema.index({ slug: 1 });
+// ENHANCED: Better indexes for slug performance and validation
+PostSchema.index({ slug: 1 }, { unique: true });
 PostSchema.index({ categoryId: 1, status: 1 });
-PostSchema.index({ authorId: 1, status: 1 }); // NEW: Author index
+PostSchema.index({ authorId: 1, status: 1 });
 PostSchema.index({ status: 1, publishedAt: -1 });
 PostSchema.index({ viewCount: -1 });
 PostSchema.index({ isFeatured: 1, publishedAt: -1 });
@@ -150,3 +163,38 @@ PostSchema.index(
     },
   },
 );
+
+// NEW: Pre-save middleware for slug validation and sanitization
+PostSchema.pre('save', function (next) {
+  if (this.isModified('slug')) {
+    // Ensure slug is lowercase and properly formatted
+    this.slug = this.slug.toLowerCase().trim();
+
+    // Validate slug length
+    if (this.slug.length < 3) {
+      return next(new Error('Slug must be at least 3 characters long'));
+    }
+
+    if (this.slug.length > 100) {
+      return next(new Error('Slug must not exceed 100 characters'));
+    }
+
+    // Validate slug format
+    const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    if (!slugRegex.test(this.slug)) {
+      return next(new Error('Slug must contain only lowercase letters, numbers, and hyphens. Cannot start or end with hyphen.'));
+    }
+  }
+
+  next();
+});
+
+// NEW: Post-save logging for debugging
+PostSchema.post('save', function (doc) {
+  console.log('📝 Post saved:', {
+    id: doc._id,
+    title: doc.title,
+    slug: doc.slug,
+    slugLength: doc.slug.length,
+  });
+});

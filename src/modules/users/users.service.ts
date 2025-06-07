@@ -260,7 +260,7 @@ export class UsersService {
       throw new BadRequestException('Invalid user ID');
     }
 
-    const user = await this.userModel.findById(userId);
+    const user: any = await this.userModel.findById(userId);
     if (!user) {
       throw new NotFoundException('User not found');
     }
@@ -297,31 +297,146 @@ export class UsersService {
         .exec(),
     ]);
 
+    // Calculate account age
+    const accountCreatedAt = new Date(user.createdAt);
+    const now = new Date();
+    const ageInMs = now.getTime() - accountCreatedAt.getTime();
+    const ageInDays = Math.floor(ageInMs / (1000 * 60 * 60 * 24));
+    const ageInMonths = Math.floor(ageInDays / 30);
+    const ageInYears = Math.floor(ageInDays / 365);
+
+    // Calculate days since last login
+    const daysSinceLastLogin = user.lastLoginAt
+      ? Math.floor((now.getTime() - new Date(user.lastLoginAt).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    // Check if user is active (logged in within 30 days)
+    const isActiveUser = user.lastLoginAt
+      ? (now.getTime() - new Date(user.lastLoginAt).getTime()) < (30 * 24 * 60 * 60 * 1000)
+      : false;
+
+    // Calculate profile completion
+    const profileCompletion = this.calculateProfileCompletion(user);
+    const missingFields = this.getMissingProfileFields(user);
+
+    // ENHANCED: Include all user profile information
     return {
       user: {
         id: user._id,
         username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
         displayName: user.displayName || user.username,
         avatar: user.avatar,
         bio: user.bio,
+        website: user.website, // ← ADDED: Website field
+        location: user.location, // ← ADDED: Location field
+        dateOfBirth: user.dateOfBirth, // ← ADDED: Date of birth
+        role: user.role, // ← ADDED: User role
+        status: user.status, // ← ADDED: User status
         postCount: user.postCount,
+        commentCount: user.commentCount, // ← ADDED: Comment count
         followerCount: user.followerCount,
         followingCount: user.followingCount,
+        likeCount: user.likeCount, // ← ADDED: Like count
+        isProfilePublic: user.isProfilePublic, // ← ADDED: Profile visibility
+        isEmailNotificationEnabled: user.isEmailNotificationEnabled, // ← ADDED: Email settings
+        emailVerifiedAt: user.emailVerifiedAt, // ← ADDED: Email verification status
+        lastLoginAt: user.lastLoginAt, // ← ADDED: Last login
         createdAt: user.createdAt,
+        updatedAt: user.updatedAt, // ← ADDED: Last update
+        // Computed fields
+        fullName: user.firstName && user.lastName
+          ? `${user.firstName} ${user.lastName}`
+          : user.displayName || user.username,
+        memberSince: user.createdAt,
+        accountAge: {
+          days: ageInDays,
+          months: ageInMonths,
+          years: ageInYears,
+        },
       },
       stats: {
         posts: {
           total: totalPosts,
           published: publishedPosts,
           draft: draftPosts,
+          publishRate: totalPosts > 0 ? Math.round((publishedPosts / totalPosts) * 100) : 0, // ← ADDED: Publish rate percentage
         },
         engagement: {
           totalViews: totalViews[0]?.totalViews || 0,
           totalLikes: totalLikes[0]?.totalLikes || 0,
+          averageViewsPerPost: publishedPosts > 0 ? Math.round((totalViews[0]?.totalViews || 0) / publishedPosts) : 0, // ← ADDED: Average views
+          averageLikesPerPost: publishedPosts > 0 ? Math.round((totalLikes[0]?.totalLikes || 0) / publishedPosts) : 0, // ← ADDED: Average likes
+        },
+        // NEW: Social stats
+        social: {
+          followers: user.followerCount,
+          following: user.followingCount,
+          comments: user.commentCount,
+          likes: user.likeCount,
+          followersToFollowingRatio: user.followingCount > 0 ? Math.round((user.followerCount / user.followingCount) * 100) / 100 : 0,
+        },
+        // NEW: Activity stats
+        activity: {
+          lastLoginAt: user.lastLoginAt,
+          daysSinceLastLogin,
+          isActiveUser,
+          totalActivities: recentActivities.length,
+        },
+        // NEW: Profile completion
+        profileCompletion: {
+          percentage: profileCompletion,
+          missingFields,
         },
       },
       recentActivities,
+      // NEW: Additional metadata
+      metadata: {
+        profileUrl: `/users/username/${user.username}`,
+        postsUrl: `/users/username/${user.username}/posts`,
+        isVerified: !!user.emailVerifiedAt,
+        canEdit: false, // Will be set to true if requesting user is the profile owner
+        lastUpdated: new Date().toISOString(),
+      },
     };
+  }
+
+  // NEW: Helper method to calculate profile completion percentage
+  private calculateProfileCompletion(user: any): number {
+    const fields = [
+      'firstName',
+      'lastName',
+      'displayName',
+      'bio',
+      'avatar',
+      'website',
+      'location',
+      'dateOfBirth'
+    ];
+
+    const completedFields = fields.filter(field =>
+      user[field] && user[field].toString().trim().length > 0
+    ).length;
+
+    return Math.round((completedFields / fields.length) * 100);
+  }
+  private getMissingProfileFields(user: any): string[] {
+    const fields = [
+      { key: 'firstName', label: 'First Name' },
+      { key: 'lastName', label: 'Last Name' },
+      { key: 'displayName', label: 'Display Name' },
+      { key: 'bio', label: 'Bio' },
+      { key: 'avatar', label: 'Profile Picture' },
+      { key: 'website', label: 'Website' },
+      { key: 'location', label: 'Location' },
+      { key: 'dateOfBirth', label: 'Date of Birth' }
+    ];
+
+    return fields
+      .filter(field => !user[field.key] || user[field.key].toString().trim().length === 0)
+      .map(field => field.label);
   }
 
   async getTopUsers(limit: number = 10) {
