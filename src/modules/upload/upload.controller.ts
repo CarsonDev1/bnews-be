@@ -306,8 +306,8 @@ export class UploadController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Upload multiple banner images',
-    description: 'Upload multiple images for banners (up to 10 files)'
+    summary: 'Upload multiple banner images - FINAL FIX',
+    description: 'Upload multiple images for banners. Use field name "files" for multiple files.'
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -320,54 +320,7 @@ export class UploadController {
             type: 'string',
             format: 'binary',
           },
-          description: 'Multiple banner image files (max 10MB each)',
-        },
-      },
-      required: ['files'],
-    },
-  })
-  @ApiResponse({
-    status: 201,
-    description: 'Banner images uploaded successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        message: { type: 'string' },
-        uploadedCount: { type: 'number' },
-        totalFiles: { type: 'number' },
-        images: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              url: { type: 'string' },
-              filename: { type: 'string' },
-              width: { type: 'number' },
-              height: { type: 'number' },
-              size: { type: 'number' },
-              order: { type: 'number' },
-              responsive: {
-                type: 'object',
-                properties: {
-                  small: { type: 'string' },
-                  medium: { type: 'string' },
-                  large: { type: 'string' },
-                  original: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
-        errors: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              index: { type: 'number' },
-              filename: { type: 'string' },
-              error: { type: 'string' },
-            },
-          },
+          description: 'Multiple banner image files',
         },
       },
     },
@@ -377,68 +330,331 @@ export class UploadController {
     @Req() request: FastifyRequest,
   ) {
     try {
-      const files = await (request as any).files();
+      console.log('🚀 FINAL FIX: Starting multiple banner upload...');
+
       const uploadedImages: any[] = [];
       const errors: any[] = [];
-      const maxFiles = 10;
 
-      if (!files || files.length === 0) {
-        throw new BadRequestException('No files uploaded');
+      // Log request details for debugging
+      console.log('🔍 Request details:', {
+        contentType: request.headers['content-type'],
+        hasFilesMethod: typeof (request as any).files === 'function',
+        hasFileMethod: typeof (request as any).file === 'function',
+        bodyKeys: Object.keys((request as any).body || {}),
+      });
+
+      // Method 1: Try manual iteration with proper error handling
+      let filesProcessed = false;
+
+      try {
+        console.log('📁 Method 1: Using files() generator...');
+        const filesIterator = (request as any).files();
+
+        if (!filesIterator) {
+          throw new Error('Files iterator is null/undefined');
+        }
+
+        let fileCount = 0;
+
+        // Use for-await-of loop with timeout protection
+        const startTime = Date.now();
+        const timeout = 30000; // 30 seconds timeout
+
+        for await (const part of filesIterator) {
+          // Timeout protection
+          if (Date.now() - startTime > timeout) {
+            console.error('⏰ Timeout reached while processing files');
+            break;
+          }
+
+          fileCount++;
+          console.log(`📄 Processing file ${fileCount}:`, {
+            filename: part.filename,
+            fieldname: part.fieldname,
+            mimetype: part.mimetype,
+            encoding: part.encoding,
+          });
+
+          try {
+            // Convert stream to buffer with error handling
+            const chunks: Buffer[] = [];
+            const stream = part.file;
+
+            // Method A: Use toBuffer if available
+            let buffer: Buffer;
+            if (typeof part.toBuffer === 'function') {
+              console.log(`🔄 Using toBuffer() for file ${fileCount}`);
+              buffer = await part.toBuffer();
+            } else {
+              // Method B: Manual stream reading
+              console.log(`🔄 Reading stream manually for file ${fileCount}`);
+
+              await new Promise<void>((resolve, reject) => {
+                stream.on('data', (chunk: Buffer) => {
+                  chunks.push(chunk);
+                });
+
+                stream.on('end', () => {
+                  resolve();
+                });
+
+                stream.on('error', (err: Error) => {
+                  reject(err);
+                });
+
+                // Add timeout for stream reading
+                setTimeout(() => {
+                  reject(new Error('Stream reading timeout'));
+                }, 10000);
+              });
+
+              buffer = Buffer.concat(chunks);
+            }
+
+            if (!buffer || buffer.length === 0) {
+              throw new Error('Empty buffer received');
+            }
+
+            console.log(`✅ Buffer created for file ${fileCount}: ${buffer.length} bytes`);
+
+            // Validate file
+            this.uploadService.validateFileBuffer(
+              buffer,
+              part.mimetype,
+              part.filename
+            );
+
+            // Upload file
+            const result = await this.uploadService.uploadBannerImage(
+              buffer,
+              part.filename || `banner-${fileCount}`
+            );
+
+            // Generate responsive URLs
+            const responsiveUrls = this.uploadService.generateResponsiveImageUrls(result.url);
+
+            uploadedImages.push({
+              url: result.url,
+              filename: result.filename,
+              width: result.width,
+              height: result.height,
+              size: result.size,
+              order: fileCount - 1,
+              responsive: responsiveUrls,
+            });
+
+            console.log(`✅ File ${fileCount} uploaded successfully: ${result.filename}`);
+            filesProcessed = true;
+
+          } catch (fileError) {
+            console.error(`❌ Error processing file ${fileCount}:`, fileError);
+            errors.push({
+              index: fileCount - 1,
+              filename: part.filename || `file-${fileCount}`,
+              error: fileError.message,
+            });
+          }
+        }
+
+        console.log(`📊 Method 1 completed: ${fileCount} files found, ${uploadedImages.length} uploaded`);
+
+      } catch (method1Error) {
+        console.error('❌ Method 1 failed:', method1Error.message);
       }
 
-      if (files.length > maxFiles) {
-        throw new BadRequestException(`Maximum ${maxFiles} files allowed`);
-      }
-
-      console.log(`📄 Processing ${files.length} banner images...`);
-
-      for (let i = 0; i < files.length; i++) {
+      // Method 2: Try single file approach multiple times
+      if (!filesProcessed) {
         try {
-          const fileData = files[i];
-          const buffer = await fileData.toBuffer();
+          console.log('📁 Method 2: Using single file() approach...');
 
-          // Validate each file
-          this.uploadService.validateFileBuffer(buffer, fileData.mimetype, fileData.filename);
+          let fileIndex = 0;
+          while (fileIndex < 20) { // Max 20 attempts
+            try {
+              const part = await (request as any).file();
 
-          // Upload file
-          const result = await this.uploadService.uploadBannerImage(
-            buffer,
-            fileData.filename || `banner-${i + 1}`
-          );
+              if (!part) {
+                console.log(`📄 No more files at index ${fileIndex}`);
+                break;
+              }
 
-          // Generate responsive URLs
-          const responsiveUrls = this.uploadService.generateResponsiveImageUrls(result.url);
+              fileIndex++;
+              console.log(`📄 Single file ${fileIndex}:`, {
+                filename: part.filename,
+                fieldname: part.fieldname,
+                mimetype: part.mimetype,
+              });
 
-          uploadedImages.push({
-            url: result.url,
-            filename: result.filename,
-            width: result.width,
-            height: result.height,
-            size: result.size,
-            order: i,
-            responsive: responsiveUrls,
-          });
+              // Process the file same as Method 1
+              let buffer: Buffer;
+              if (typeof part.toBuffer === 'function') {
+                buffer = await part.toBuffer();
+              } else {
+                const chunks: Buffer[] = [];
+                const stream = part.file;
 
-          console.log(`✅ Uploaded banner image ${i + 1}: ${result.filename}`);
-        } catch (error) {
-          console.error(`❌ Error uploading file ${i + 1}:`, error);
-          errors.push({
-            index: i,
-            filename: files[i]?.filename || `file-${i + 1}`,
-            error: error.message,
-          });
+                await new Promise<void>((resolve, reject) => {
+                  stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+                  stream.on('end', () => resolve());
+                  stream.on('error', reject);
+                  setTimeout(() => reject(new Error('Stream timeout')), 10000);
+                });
+
+                buffer = Buffer.concat(chunks);
+              }
+
+              if (buffer && buffer.length > 0) {
+                this.uploadService.validateFileBuffer(buffer, part.mimetype, part.filename);
+
+                const result = await this.uploadService.uploadBannerImage(
+                  buffer,
+                  part.filename || `banner-single-${fileIndex}`
+                );
+
+                const responsiveUrls = this.uploadService.generateResponsiveImageUrls(result.url);
+
+                uploadedImages.push({
+                  url: result.url,
+                  filename: result.filename,
+                  width: result.width,
+                  height: result.height,
+                  size: result.size,
+                  order: fileIndex - 1,
+                  responsive: responsiveUrls,
+                });
+
+                console.log(`✅ Single file ${fileIndex} uploaded: ${result.filename}`);
+                filesProcessed = true;
+              }
+
+            } catch (singleFileError) {
+              console.log(`📄 No more files or error at ${fileIndex}:`, singleFileError.message);
+              break;
+            }
+          }
+
+          console.log(`📊 Method 2 completed: ${fileIndex} files processed`);
+
+        } catch (method2Error) {
+          console.error('❌ Method 2 failed:', method2Error.message);
         }
       }
 
+      // Method 3: Check request body for attached files
+      if (!filesProcessed && (request as any).body) {
+        try {
+          console.log('📁 Method 3: Checking request body...');
+          const body = (request as any).body;
+
+          console.log('Body structure:', {
+            keys: Object.keys(body),
+            hasFiles: !!body.files,
+            filesType: typeof body.files,
+            filesIsArray: Array.isArray(body.files),
+          });
+
+          if (body.files) {
+            const files = Array.isArray(body.files) ? body.files : [body.files];
+
+            for (let i = 0; i < files.length; i++) {
+              try {
+                const fileData = files[i];
+                console.log(`📄 Body file ${i + 1}:`, {
+                  filename: fileData.filename,
+                  mimetype: fileData.mimetype,
+                  hasBuffer: !!fileData.buffer,
+                  hasToBuffer: typeof fileData.toBuffer === 'function',
+                });
+
+                let buffer: Buffer;
+                if (fileData.buffer) {
+                  buffer = fileData.buffer;
+                } else if (typeof fileData.toBuffer === 'function') {
+                  buffer = await fileData.toBuffer();
+                } else if (fileData._buf) {
+                  buffer = fileData._buf;
+                } else {
+                  throw new Error('No buffer available');
+                }
+
+                if (buffer && buffer.length > 0) {
+                  this.uploadService.validateFileBuffer(buffer, fileData.mimetype, fileData.filename);
+
+                  const result = await this.uploadService.uploadBannerImage(
+                    buffer,
+                    fileData.filename || `banner-body-${i + 1}`
+                  );
+
+                  const responsiveUrls = this.uploadService.generateResponsiveImageUrls(result.url);
+
+                  uploadedImages.push({
+                    url: result.url,
+                    filename: result.filename,
+                    width: result.width,
+                    height: result.height,
+                    size: result.size,
+                    order: i,
+                    responsive: responsiveUrls,
+                  });
+
+                  console.log(`✅ Body file ${i + 1} uploaded: ${result.filename}`);
+                  filesProcessed = true;
+                }
+
+              } catch (bodyFileError) {
+                console.error(`❌ Error processing body file ${i + 1}:`, bodyFileError);
+                errors.push({
+                  index: i,
+                  filename: files[i]?.filename || `body-file-${i + 1}`,
+                  error: bodyFileError.message,
+                });
+              }
+            }
+
+            console.log(`📊 Method 3 completed: ${files.length} files in body`);
+          }
+
+        } catch (method3Error) {
+          console.error('❌ Method 3 failed:', method3Error.message);
+        }
+      }
+
+      // Final result
+      const totalProcessed = uploadedImages.length + errors.length;
+
+      console.log(`🏁 Final results:`, {
+        uploaded: uploadedImages.length,
+        errors: errors.length,
+        total: totalProcessed,
+        filesProcessed,
+      });
+
+      if (totalProcessed === 0) {
+        throw new BadRequestException(
+          'No files found in request. Please ensure:\n' +
+          '1. Files are attached with field name "files"\n' +
+          '2. Content-Type is multipart/form-data\n' +
+          '3. Files are properly selected\n' +
+          '4. Check browser network tab for request details'
+        );
+      }
+
       return {
-        message: `Banner images uploaded successfully`,
+        message: uploadedImages.length > 0
+          ? `${uploadedImages.length} banner images uploaded successfully`
+          : 'No files could be uploaded',
         uploadedCount: uploadedImages.length,
-        totalFiles: files.length,
+        totalFiles: totalProcessed,
         images: uploadedImages,
         errors: errors.length > 0 ? errors : undefined,
+        debug: {
+          methodsAttempted: ['files()', 'file()', 'body'],
+          filesProcessed,
+          timestamp: new Date().toISOString(),
+        },
       };
+
     } catch (error) {
-      console.error('Multiple banner images upload error:', error);
+      console.error('❌ FINAL: Multiple banner upload failed:', error);
       if (error instanceof BadRequestException) throw error;
       throw new BadRequestException(`Upload failed: ${error.message}`);
     }

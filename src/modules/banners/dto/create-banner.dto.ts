@@ -1,4 +1,4 @@
-// src/modules/banners/dto/create-banner.dto.ts - FIXED URL VALIDATION
+// src/modules/banners/dto/create-banner.dto.ts - FINAL FIX
 
 import {
   IsString,
@@ -81,12 +81,13 @@ export class QueryBannerDto {
   sortOrder?: 'asc' | 'desc' = 'desc';
 }
 
+// FINAL FIX: Simplified Banner Image DTO - only use 'url' field
 export class BannerImageDto {
   @ApiProperty({
     description: 'Image URL',
     example: 'http://localhost:5000/uploads/banners/banner-image.webp'
   })
-  @IsString({ message: 'URL must be a string' })
+  @IsString({ message: 'url must be a string' })
   @IsUrl({
     protocols: ['http', 'https'],
     require_protocol: true,
@@ -99,7 +100,6 @@ export class BannerImageDto {
   }, {
     message: 'url must be a valid URL address (e.g., http://localhost:5000/uploads/banners/image.webp)'
   })
-  @Transform(({ obj }) => obj.URL || obj.url) // Accept both URL and url
   url: string;
 
   @ApiProperty({
@@ -280,19 +280,31 @@ export class CreateBannerDto {
   priority?: number;
 
   @ApiPropertyOptional({
-    description: 'Start date (ISO string)',
+    description: 'Start date (ISO string or empty)',
     example: '2024-12-01T00:00:00.000Z'
   })
   @IsOptional()
-  @IsDateString()
+  @Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) {
+      return undefined;
+    }
+    return value;
+  })
+  @IsDateString({}, { message: 'Start date must be a valid ISO 8601 date string' })
   startDate?: string;
 
   @ApiPropertyOptional({
-    description: 'End date (ISO string)',
+    description: 'End date (ISO string or empty)',
     example: '2024-12-31T23:59:59.999Z'
   })
   @IsOptional()
-  @IsDateString()
+  @Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) {
+      return undefined;
+    }
+    return value;
+  })
+  @IsDateString({}, { message: 'End date must be a valid ISO 8601 date string' })
   endDate?: string;
 
   @ApiPropertyOptional({

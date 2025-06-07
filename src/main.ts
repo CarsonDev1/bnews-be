@@ -31,7 +31,9 @@ async function bootstrap() {
   await app.register(require('@fastify/multipart'), {
     limits: {
       fileSize: 10 * 1024 * 1024, // 10MB
-      files: 1,
+      files: 20,
+      parts: 30, // Total parts (files + fields)
+      headerPairs: 2000, // Headers limit
     },
     addToBody: true,
   });
