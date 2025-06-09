@@ -31,7 +31,7 @@ export class BannersService {
       console.log(`🔍 Processing image ${index}:`, image);
 
       // CRITICAL: Handle both 'url' and 'URL' fields from frontend
-      const imageUrl = image.URL || image.url;
+      const imageUrl = image.url || image.URL;
 
       if (!imageUrl || typeof imageUrl !== 'string') {
         throw new BadRequestException(`Image ${index}: URL is required and must be a string`);
@@ -63,7 +63,7 @@ export class BannersService {
         throw new BadRequestException(`Image ${index}: size must be a positive number`);
       }
 
-      // Return normalized image object
+      // Return normalized image object - ALWAYS use lowercase 'url' internally
       const normalizedImage = {
         url: imageUrl, // Always use lowercase 'url' internally
         filename: image.filename,

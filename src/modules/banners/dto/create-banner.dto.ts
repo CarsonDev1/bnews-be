@@ -1,4 +1,4 @@
-// src/modules/banners/dto/create-banner.dto.ts - FINAL FIX
+// src/modules/banners/dto/create-banner.dto.ts - COMPLETE FIX FOR LOCALHOST URLs
 
 import {
   IsString,
@@ -81,7 +81,7 @@ export class QueryBannerDto {
   sortOrder?: 'asc' | 'desc' = 'desc';
 }
 
-// FINAL FIX: Simplified Banner Image DTO - only use 'url' field
+// FINAL FIX: Banner Image DTO with proper localhost URL support
 export class BannerImageDto {
   @ApiProperty({
     description: 'Image URL',
@@ -89,14 +89,13 @@ export class BannerImageDto {
   })
   @IsString({ message: 'url must be a string' })
   @IsUrl({
+    require_tld: false, // CRITICAL: Allow localhost URLs without TLD
     protocols: ['http', 'https'],
     require_protocol: true,
     require_host: true,
-    require_valid_protocol: true,
     allow_underscores: true,
     allow_trailing_dot: false,
     allow_protocol_relative_urls: false,
-    disallow_auth: false
   }, {
     message: 'url must be a valid URL address (e.g., http://localhost:5000/uploads/banners/image.webp)'
   })
@@ -236,7 +235,9 @@ export class CreateBannerDto {
     example: 'https://example.com/sale'
   })
   @IsOptional()
-  @IsUrl({}, { message: 'Link URL must be a valid URL address' })
+  @IsUrl({
+    require_tld: false, // IMPORTANT: Also allow localhost for link URLs
+  }, { message: 'Link URL must be a valid URL address' })
   linkUrl?: string;
 
   @ApiPropertyOptional({
